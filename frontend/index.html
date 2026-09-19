@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="纯文本技术交流论坛 - 一个简洁、专注的技术讨论社区" />
+  <title>首页 - 技术论坛</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
+  <link rel="stylesheet" href="css/style.css?v=2" />
+  <!-- marked.js - Markdown 解析 -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- highlight.js - 代码高亮（浏览器预构建版，含所有常用语言） -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+  <div class="app">
+    <!-- ==================== Header ==================== -->
+    <header class="header">
+      <div class="container header-inner">
+        <a href="index.html" class="logo">
+          <span class="logo-mark">T</span>
+          <span>技术论坛</span>
+        </a>
+        <div class="nav-actions" id="nav-actions">
+          <!-- 由 index.js 动态渲染 -->
+        </div>
+      </div>
+    </header>
+
+    <!-- ==================== Main ==================== -->
+    <main>
+      <div class="container">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">最新帖子</h1>
+            <div class="page-subtitle">技术交流 · 开源讨论 · 问题求助</div>
+          </div>
+          <button id="open-post-btn" class="btn btn-primary btn-sm hidden">
+            ✍ 发布新帖
+          </button>
+        </div>
+
+        <!-- 帖子列表 -->
+        <div id="post-list" class="post-list">
+          <div class="loading">加载中</div>
+        </div>
+
+        <!-- 分页 -->
+        <div id="pagination" class="pagination"></div>
+      </div>
+    </main>
+
+    <!-- ==================== Footer ==================== -->
+    <footer class="footer">
+      <div class="container">
+        <span>技术交流论坛 · 纯 HTML + JS 实现</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ==================== 发帖模态框 ==================== -->
+  <div id="post-modal" class="modal-backdrop hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 class="modal-title">发布新帖</h2>
+        <button id="post-modal-close" class="modal-close" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group" id="post-title-group">
+          <label class="form-label" for="post-title">
+            标题 <span class="required">*</span>
+          </label>
+          <input
+            type="text"
+            id="post-title"
+            class="form-control"
+            placeholder="请输入帖子标题（不超过 100 字）"
+            maxlength="100"
+            autocomplete="off"
+          />
+          <div class="form-error">请输入帖子标题</div>
+        </div>
+        <div class="form-group" id="post-content-group">
+          <label class="form-label" for="post-content">
+            正文 <span class="required">*</span>
+          </label>
+          <textarea
+            id="post-content"
+            class="form-control md-editor"
+            placeholder="支持 Markdown 语法...&#10;&#10;## 二级标题&#10;&#10;```js&#10;console.log('hello');&#10;```&#10;&#10;[链接](https://example.com)"
+          ></textarea>
+          <div class="form-hint">
+            支持 Markdown 语法：标题、列表、代码块（含语法高亮）、链接、表格等。<br/>
+            快捷键：<kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速发布
+          </div>
+          <div class="form-error">请输入帖子内容</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="post-cancel-btn" class="btn">取消</button>
+        <button id="post-submit-btn" class="btn btn-primary">发布帖子</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Toast ==================== -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ==================== Scripts ==================== -->
+  <script src="js/api.js?v=2"></script>
+  <script src="js/index.js?v=2"></script>
+</body>
+</html>
