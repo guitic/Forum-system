@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="description" content="用户中心 - 技术交流论坛" />
+  <title>用户中心 - 技术论坛</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
+  <link rel="stylesheet" href="css/style.css?v=4" />
+</head>
+<body>
+  <div class="app">
+    <!-- ==================== Header ==================== -->
+    <header class="header">
+      <div class="container header-inner">
+        <a href="index.html" class="logo">
+          <span class="logo-mark">T</span>
+          <span>技术论坛</span>
+        </a>
+        <div class="nav-actions" id="nav-actions">
+          <!-- 由 profile.js 动态渲染 -->
+        </div>
+      </div>
+    </header>
+
+    <!-- ==================== Main ==================== -->
+    <main>
+      <div class="container">
+        <!-- 加载中 -->
+        <div id="profile-loading" class="loading" style="padding:80px 20px">正在加载资料…</div>
+
+        <!-- 个人资料 -->
+        <div id="profile-wrapper" class="hidden">
+          <!-- 用户信息卡片 -->
+          <div class="profile-header card">
+            <div class="profile-avatar-section">
+              <!-- 头像预览 -->
+              <div class="profile-avatar-wrap">
+                <div id="profile-avatar" class="profile-avatar"></div>
+                <label for="avatar-upload-input" class="profile-avatar-upload-btn" title="更换头像">
+                  <span class="upload-icon">📷</span>
+                  <span class="upload-text">更换头像</span>
+                </label>
+                <input type="file" id="avatar-upload-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" />
+              </div>
+              <div class="profile-avatar-info">
+                <div id="profile-avatar-url" class="avatar-url-info hidden"></div>
+                <div class="avatar-hint">支持 JPG / PNG / WebP / GIF，最大 2MB</div>
+              </div>
+            </div>
+
+            <div class="profile-info-section">
+              <h1 id="profile-display-name" class="profile-name"></h1>
+              <div class="profile-meta">
+                <div class="profile-meta-row">
+                  <span class="profile-meta-label">用户名</span>
+                  <span id="profile-username" class="profile-meta-value"></span>
+                </div>
+                <div class="profile-meta-row">
+                  <span class="profile-meta-label">角色</span>
+                  <span id="profile-role" class="profile-meta-value"></span>
+                </div>
+                <div class="profile-meta-row">
+                  <span class="profile-meta-label">注册时间</span>
+                  <span id="profile-created-at" class="profile-meta-value"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 资料编辑区域 -->
+          <div class="profile-edit-section">
+            <!-- 昵称与简介 -->
+            <div class="profile-edit-card card">
+              <h2 class="edit-section-title">个人信息</h2>
+
+              <div class="form-group" id="nickname-group">
+                <label class="form-label" for="nickname-input">昵称</label>
+                <input
+                  type="text"
+                  id="nickname-input"
+                  class="form-control"
+                  placeholder="设置一个友好的昵称（最多 50 字符）"
+                  maxlength="50"
+                />
+                <div class="form-hint" id="nickname-hint">昵称会显示在帖子和回复中</div>
+                <div class="form-error"></div>
+              </div>
+
+              <div class="form-group" id="bio-group">
+                <label class="form-label" for="bio-input">个人简介</label>
+                <textarea
+                  id="bio-input"
+                  class="form-control"
+                  placeholder="介绍一下你自己（最多 200 字符）"
+                  maxlength="200"
+                  rows="4"
+                ></textarea>
+                <div class="form-hint">
+                  <span id="bio-char-count">0</span> / 200
+                </div>
+                <div class="form-error"></div>
+              </div>
+
+              <div class="edit-actions">
+                <button id="save-profile-btn" class="btn btn-primary">保存资料</button>
+              </div>
+            </div>
+
+            <!-- 修改密码 -->
+            <div class="profile-edit-card card">
+              <h2 class="edit-section-title">修改密码</h2>
+
+              <div class="form-group" id="old-password-group">
+                <label class="form-label" for="old-password-input">
+                  当前密码 <span class="required">*</span>
+                </label>
+                <div class="password-input-wrap">
+                  <input
+                    type="password"
+                    id="old-password-input"
+                    class="form-control"
+                    placeholder="请输入当前密码"
+                    autocomplete="current-password"
+                  />
+                  <button type="button" class="password-toggle" data-target="old-password-input" title="显示/隐藏">👁</button>
+                </div>
+                <div class="form-error"></div>
+              </div>
+
+              <div class="form-group" id="new-password-group">
+                <label class="form-label" for="new-password-input">
+                  新密码 <span class="required">*</span>
+                </label>
+                <div class="password-input-wrap">
+                  <input
+                    type="password"
+                    id="new-password-input"
+                    class="form-control"
+                    placeholder="至少 8 位，需含字母、数字和特殊字符"
+                    autocomplete="new-password"
+                  />
+                  <button type="button" class="password-toggle" data-target="new-password-input" title="显示/隐藏">👁</button>
+                </div>
+                <div class="password-strength" id="password-strength">
+                  <div class="strength-bar"></div>
+                  <span class="strength-text"></span>
+                </div>
+                <div class="form-hint">
+                  密码要求：至少 8 位，包含字母、数字和特殊字符
+                </div>
+                <div class="form-error"></div>
+              </div>
+
+              <div class="form-group" id="confirm-password-group">
+                <label class="form-label" for="confirm-password-input">
+                  确认新密码 <span class="required">*</span>
+                </label>
+                <div class="password-input-wrap">
+                  <input
+                    type="password"
+                    id="confirm-password-input"
+                    class="form-control"
+                    placeholder="再次输入新密码"
+                    autocomplete="new-password"
+                  />
+                  <button type="button" class="password-toggle" data-target="confirm-password-input" title="显示/隐藏">👁</button>
+                </div>
+                <div class="form-error"></div>
+              </div>
+
+              <div class="edit-actions">
+                <button id="change-password-btn" class="btn btn-primary">修改密码</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 错误提示 -->
+        <div id="profile-error" class="empty-state hidden"></div>
+      </div>
+    </main>
+
+    <!-- ==================== Footer ==================== -->
+    <footer class="footer">
+      <div class="container">
+        <span>技术交流论坛 · 纯 HTML + JS 实现</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- ==================== Toast ==================== -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ==================== Scripts ==================== -->
+  <script src="js/api.js?v=5"></script>
+  <script src="js/profile.js?v=2"></script>
+</body>
+</html>

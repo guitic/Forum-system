@@ -57,6 +57,10 @@ temp/
 # 前端依赖（如果将来引入）
 node_modules/
 
+# 上传文件（头像等）
+backend/uploads/
+uploads/
+
 # 备份文件
 *.bak
 *.backup

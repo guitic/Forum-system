@@ -51,7 +51,12 @@
 
   function handleLogout() {
     API.clearToken();
-    try { localStorage.removeItem("username"); } catch (e) { /* ignore */ }
+    try {
+      localStorage.removeItem("username");
+      localStorage.removeItem("nickname");
+      localStorage.removeItem("avatar_url");
+      localStorage.removeItem("role");
+    } catch (e) { /* ignore */ }
     renderNav();
     switchMode("login");
     clearFormErrors();
@@ -143,9 +148,17 @@
         throw new Error("服务器未返回有效的 Token");
       }
       API.setToken(token);
-      // 缓存用户名（后端可能在响应里返回 username）
+      // 缓存用户名和用户资料信息
       var uname = data.username || (data && data.data && data.data.username) || username;
       try { localStorage.setItem("username", uname); } catch (e) { /* ignore */ }
+      // V2: 缓存昵称和头像
+      if (data.nickname) try { localStorage.setItem("nickname", data.nickname); } catch (e) { /* ignore */ }
+      else try { localStorage.removeItem("nickname"); } catch (e) { /* ignore */ }
+      if (data.avatar_url) try { localStorage.setItem("avatar_url", data.avatar_url); } catch (e) { /* ignore */ }
+      else try { localStorage.removeItem("avatar_url"); } catch (e) { /* ignore */ }
+      // V3: 缓存角色（用于前端判断是否显示管理员特权操作）
+      if (data.role) try { localStorage.setItem("role", data.role); } catch (e) { /* ignore */ }
+      else try { localStorage.removeItem("role"); } catch (e) { /* ignore */ }
       showToast("登录成功，正在跳转…", "success");
       setTimeout(function () {
         window.location.href = getRedirect();
@@ -193,6 +206,8 @@
       if (token) {
         API.setToken(token);
         try { localStorage.setItem("username", username); } catch (e) { /* ignore */ }
+        try { localStorage.removeItem("nickname"); } catch (e) { /* ignore */ }
+        try { localStorage.removeItem("avatar_url"); } catch (e) { /* ignore */ }
         showToast("注册成功，已自动登录", "success");
         setTimeout(function () {
           window.location.href = getRedirect();

@@ -155,4 +155,11 @@ def login():
     if isinstance(token, bytes):
         token = token.decode("utf-8")
 
-    return jsonify({"token": token}), 200
+    return jsonify({
+        "token": token,
+        "username": user.username,
+        "nickname": user.nickname,
+        "display_name": user.display_name,
+        "avatar_url": user.avatar_url,
+        "role": user.role,
+    }), 200

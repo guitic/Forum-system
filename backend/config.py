@@ -54,6 +54,34 @@ class Config:
     DEFAULT_PAGE_SIZE = int(os.getenv("DEFAULT_PAGE_SIZE", "20"))
     MAX_PAGE_SIZE = int(os.getenv("MAX_PAGE_SIZE", "100"))
 
+    # ---------- 文件上传配置（V2 新增） ----------
+    # 头像上传目录（相对于项目根目录）
+    UPLOAD_DIR = os.getenv(
+        "UPLOAD_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads"),
+    )
+    # 头像子目录
+    AVATAR_DIRNAME = "avatars"
+    # 头像最大文件大小（2MB）
+    MAX_AVATAR_SIZE = int(os.getenv("MAX_AVATAR_SIZE", str(2 * 1024 * 1024)))
+    # 允许的图片 MIME 类型
+    ALLOWED_AVATAR_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    # 允许的扩展名
+    ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+
+    # 昵称最大长度
+    MAX_NICKNAME_LENGTH = 50
+    # 简介最大长度
+    MAX_BIO_LENGTH = 200
+
+    # ---------- 回复层级配置（V3 新增） ----------
+    # 回复最大嵌套深度：0 = 一级回复，1 = 二级，2 = 三级（展示期最多 3 层）。
+    # 超出该深度的回复在展示阶段被上提到 depth=1 的祖先下作为同级，
+    # 数据库保留真实父子关系不修改。
+    MAX_REPLY_DEPTH = int(os.getenv("MAX_REPLY_DEPTH", "2"))
+    # 回复内容最大长度
+    MAX_REPLY_LENGTH = int(os.getenv("MAX_REPLY_LENGTH", "5000"))
+
 
 # 默认配置实例
 config = Config()
