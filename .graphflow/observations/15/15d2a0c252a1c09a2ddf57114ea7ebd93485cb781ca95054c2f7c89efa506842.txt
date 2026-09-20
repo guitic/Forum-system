@@ -1,0 +1,246 @@
+<path>D:\桌面\deep\Forum system\frontend\js\post.js</path>
+<type>file</type>
+<content>
+336:     listEl.innerHTML = "";
+337: 
+338:     if (countEl) countEl.textContent = replyCount;
+339: 
+340:     if (currentTree.length === 0) {
+341:       listEl.appendChild(API.el("div", { class: "empty-state" }, [
+342:         API.el("div", { class: "icon", text: "💬" }),
+343:         API.el("div", { class: "text", text: "还没有回复" }),
+344:         API.el("div", { class: "hint", text: "登录后发表你的第一条回复" }),
+345:       ]));
+346:       return;
+347:     }
+348: 
+349:     var floor = 0;
+350:     currentTree.forEach(function (node) {
+351:       floor += 1;
+352:       listEl.appendChild(renderReplyNode(node, 0, floor));
+353:     });
+354:   }
+355: 
+356:   /**
+357:    * 递归渲染单个回复节点
+358:    * @param {Object} node 后端返回的回复节点
+359:    * @param {number} depth 展示深度（0 = 一级回复）
+360:    * @param {number} [floorNo] 楼层号，仅一级回复传入
+361:    * @returns {HTMLElement}
+362:    */
+363:   function renderReplyNode(node, depth, floorNo) {
+364:     if (!node) return document.createElement("div");
+365: 
+366:     var author = node.display_name || node.nickname || node.username || "匿名";
+367:     var time = API.formatTime(node.created_at);
+368:     var fullTime = API.formatDateTime(node.created_at);
+369:     var isAdmin = node.role === "admin";
+370:     var isOP = !!node.is_author || isPostAuthor(node.username);
+371:     var who = { avatar_url: node.avatar_url, display_name: author };
+372: 
+373:     // 卡片容器（按身份与深度附加修饰类）
+374:     var cardCls = "reply-item";
+375:     if (isOP) cardCls += " reply-op";
+376:     if (isAdmin) cardCls += " reply-admin";
+377:     if (depth > 0) cardCls += " reply-nested";
+378:     if (depth >= 2) cardCls += " reply-deep";
+379: 
+380:     var card = API.el("div", {
+381:       class: cardCls,
+382:       attrs: { "data-id": node.id, "data-depth": String(depth) },
+383:       id: "reply-" + node.id,
+384:     });
+385: 
+386:     // 头像
+387:     card.appendChild(renderAvatar(who, { base: "reply-avatar", op: isOP, admin: isAdmin }));
+388: 
+389:     // ===== 主体 =====
+390:     var body = API.el("div", { class: "reply-body" });
+391: 
+392:     // 头部：作者 + 楼主/ADMIN 徽标 + 楼层号 + 时间
+393:     var headChildren = [
+394:       API.el("span", { class: "reply-author", text: author }),
+395:     ];
+396:     if (isOP) headChildren.push(API.el("span", { class: "tag-op", text: "楼主" }));
+397:     if (isAdmin) headChildren.push(API.el("span", { class: "tag-admin", text: "ADMIN" }));
+398:     if (depth === 0 && floorNo) {
+399:       headChildren.push(API.el("span", { class: "reply-floor", text: "#" + floorNo }));
+400:     }
+401:     headChildren.push(API.el("span", {
+402:       class: "reply-time",
+403:       attrs: { title: fullTime },
+404:       text: time,
+405:     }));
+406:     body.appendChild(API.el("div", { class: "reply-head" }, headChildren));
+407: 
+408:     // 引用条：回复 @被回复人（仅子回复）
+409:     if (node.reply_to_display_name) {
+410:       body.appendChild(API.el("div", { class: "reply-quote" }, [
+411:         API.el("span", { class: "reply-quote-label", text: "回复" }),
+412:         API.el("span", { class: "reply-quote-target", text: "@" + node.reply_to_display_name }),
+413:       ]));
+414:     }
+415: 
+416:     // 内容（Markdown → 安全 HTML）
+417:     var contentEl = API.el("div", { class: "reply-content md-content" });
+418:     contentEl.innerHTML = renderMarkdown(node.content || "");
+419:     body.appendChild(contentEl);
+420: 
+421:     // 操作栏：回复（所有人，未登录跳登录）/ 删除（作者或管理员）
+422:     var actions = API.el("div", { class: "reply-actions" });
+423:     var replyBtn = API.el("button", {
+424:       class: "btn btn-ghost btn-sm reply-action-btn",
+425:       attrs: { type: "button" },
+426:     }, ["💬", " 回复"]);
+427:     replyBtn.addEventListener("click", function () {
+428:       if (!API.isLoggedIn()) { goLogin(); return; }
+429:       openInlineReply(node);
+430:     });
+431:     actions.appendChild(replyBtn);
+432: 
+433:     if (API.isLoggedIn() &&
+434:         (isCurrentUser(node.username) || isCurrentUserAdmin())) {
+435:       var delBtn = API.el("button", {
+436:         class: "btn btn-ghost btn-sm reply-action-btn reply-action-delete",
+437:         attrs: { type: "button" },
+438:       }, ["🗑", " 删除"]);
+439:       delBtn.addEventListener("click", function () { confirmDeleteReply(node); });
+440:       actions.appendChild(delBtn);
+441:     }
+442:     body.appendChild(actions);
+443: 
+444:     // 子回复（递归）
+445:     var children = node.children;
+446:     if (children && children.length) {
+447:       var childrenEl = API.el("div", { class: "reply-children" });
+448:       children.forEach(function (child) {
+449:         childrenEl.appendChild(renderReplyNode(child, depth + 1, null));
+450:       });
+451:       body.appendChild(childrenEl);
+452:     }
+453: 
+454:     card.appendChild(body);
+455:     return card;
+456:   }
+457: 
+458:   /* ------------------------------------------------------------------------
+459:    * 内联回复表单（V3：回复某条回复）
+460:    * ---------------------------------------------------------------------- */
+461:   /**
+462:    * 打开内联回复表单
+463:    * 同一时间只存在一个内联表单；插入到目标回复所在子树末尾并自动聚焦。
+464:    */
+465:   function openInlineReply(node) {
+466:     closeInlineReply();
+467:     var card = document.getElementById("reply-" + node.id);
+468:     if (!card) return;
+469:     var body = card.querySelector(".reply-body");
+470:     if (!body) return;
+471: 
+472:     var form = buildInlineForm(node);
+473:     body.appendChild(form);
+474:     var ta = form.querySelector("textarea");
+475:     if (ta) {
+476:       ta.focus();
+477:       try {
+478:         var pos = ta.value.length;
+479:         ta.setSelectionRange(pos, pos);
+480:       } catch (e) { /* 旧浏览器不支持 */ }
+481:     }
+482:   }
+483: 
+484:   function buildInlineForm(node) {
+485:     var target = node.display_name || node.nickname || node.username || "匿名";
+486:     var parentId = node.id;
+487: 
+488:     var bar = API.el("div", { class: "inline-reply-bar" }, [
+489:       API.el("span", { class: "inline-reply-label", text: "回复" }),
+490:       API.el("span", { class: "inline-reply-target", text: "@" + target }),
+491:     ]);
+492:     var closeBtn = API.el("button", {
+493:       class: "inline-reply-close",
+494:       attrs: { type: "button", "aria-label": "取消回复" },
+495:     }, ["×"]);
+496:     closeBtn.addEventListener("click", closeInlineReply);
+497:     bar.appendChild(closeBtn);
+498: 
+499:     var ta = API.el("textarea", {
+500:       class: "form-control md-editor inline-reply-textarea",
+501:       attrs: {
+502:         maxlength: "5000",
+503:         rows: "3",
+504:         placeholder: "回复 @" + target + "，支持 Markdown 语法…",
+505:       },
+506:     });
+507:     // 预填 @引用，便于被回复人感知上下文
+508:     ta.value = "@" + target + " ";
+509: 
+510:     var btn = API.el("button", {
+511:       class: "btn btn-primary btn-sm inline-reply-submit",
+512:       attrs: { type: "button" },
+513:     }, ["发布回复"]);
+514:     var foot = API.el("div", { class: "inline-reply-foot" }, [
+515:       API.el("span", {
+516:         class: "inline-reply-hint",
+517:         text: "<kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速提交",
+518:       }),
+519:       btn,
+520:     ]);
+521: 
+522:     btn.addEventListener("click", function () {
+523:       submitInlineReply(parentId, ta, btn);
+524:     });
+525:     ta.addEventListener("keydown", function (e) {
+526:       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+527:         e.preventDefault();
+528:         submitInlineReply(parentId, ta, btn);
+529:       }
+530:     });
+531: 
+532:     return API.el("div", {
+533:       class: "inline-reply-form",
+534:       attrs: { "data-parent": String(parentId) },
+535:     }, [bar, ta, foot]);
+536:   }
+537: 
+538:   function closeInlineReply() {
+539:     var existed = document.querySelector(".inline-reply-form");
+540:     if (existed && existed.parentNode) existed.parentNode.removeChild(existed);
+541:   }
+542: 
+543:   async function submitInlineReply(parentId, ta, btn) {
+544:     if (!currentPost) return;
+545:     if (!API.isLoggedIn()) { goLogin(); return; }
+546:     var content = (ta.value || "").trim();
+547:     if (!content) {
+548:       if (ta) ta.focus();
+549:       return;
+550:     }
+551: 
+552:     if (btn) {
+553:       btn.disabled = true;
+554:       btn.textContent = "提交中…";
+555:     }
+556:     try {
+557:       await API.createReply(currentPost.id, content, parentId);
+558:       showToast("回复发布成功！", "success");
+559:       loadPost(); // 整棵树刷新，内联表单随之移除
+560:     } catch (err) {
+561:       showToast(err.message || "回复失败", "error");
+562:       if (btn) {
+563:         btn.disabled = false;
+564:         btn.textContent = "发布回复";
+565:       }
+566:     }
+567:   }
+568: 
+569:   /* ------------------------------------------------------------------------
+570:    * 回复表单（一级回复，底部固定）
+571:    * ---------------------------------------------------------------------- */
+572:   function renderReplyForm() {
+573:     var form = dom.replyForm;
+574:     var prompt = dom.replyLoginPrompt;
+575:     if (!form && !prompt) return;
+
+(Showing lines 336-575 of 872. Use offset=576 to continue.)
+</content>

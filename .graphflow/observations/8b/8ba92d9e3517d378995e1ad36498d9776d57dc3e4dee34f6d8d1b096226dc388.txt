@@ -1,0 +1,284 @@
+<path>D:\桌面\deep\Forum system\backend\tests\test_reply_hierarchy.py</path>
+<type>file</type>
+<content>
+1: # -*- coding: utf-8 -*-
+2: """
+3: V3 回复层级功能端到端自测脚本。
+4: 
+5: 使用独立测试库 instance/_test_forum.db，不污染开发库。
+6: 直接通过 Flask test_client 走完整 HTTP 链路，覆盖：
+7:   游客读取 / 鉴权 / 一级二级三级回复 / 深度拉平 / 树结构 /
+8:   跨帖与非法 parent_id / 删除权限 / 级联删除 / 边界校验
+9: 
+10: 用法（可从任意目录运行）：
+11:     python backend/tests/test_reply_hierarchy.py
+12: 退出码 0 = 全部通过，1 = 存在失败项。
+13: """
+14: 
+15: import os
+16: import sys
+17: 
+18: # 定位 backend/ 目录：保证 import 与 instance/ 相对路径正确
+19: BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+20: sys.path.insert(0, BACKEND_DIR)
+21: os.chdir(BACKEND_DIR)
+22: 
+23: os.environ["DATABASE_URL"] = "sqlite:///./_test_forum.db"
+24: os.environ["MAX_REPLY_DEPTH"] = "2"
+25: 
+26: DB_FILE = os.path.join("instance", "_test_forum.db")
+27: if os.path.exists(DB_FILE):
+28:     os.remove(DB_FILE)
+29: 
+30: import bcrypt  # noqa: E402
+31: 
+32: from app import create_app  # noqa: E402
+33: from config import config  # noqa: E402
+34: from models import Post, Reply, User, db  # noqa: E402
+35: 
+36: app = create_app(config)
+37: with app.app_context():
+38:     db.create_all()
+39: 
+40: PWD = "[REDACTED:credential]"
+41: 
+42: 
+43: def mkuser(username, role="user"):
+44:     u = User(
+45:         username=username,
+46:         password_hash=bcrypt.hashpw(PWD.encode(), bcrypt.gensalt()).decode(),
+47:         role=role,
+48:     )
+49:     db.session.add(u)
+50:     db.session.commit()
+51:     return u
+52: 
+53: 
+54: with app.app_context():
+55:     lz = mkuser("lzuser0001")
+56:     bob = mkuser("bobuser0002")
+57:     alice = mkuser("aliceuser003")
+58:     admin = mkuser("adminuser004", role="admin")
+59:     other = mkuser("otheruser005")
+60:     post = Post(user_id=lz.id, title="层级回复测试", content="# Hello\n\n内容")
+61:     db.session.add(post)
+62:     db.session.commit()
+63: 
+64:     # 在退出上下文前取出纯值，避免 DetachedInstanceError
+65:     info = {
+66:         "lz": (lz.id, lz.username),
+67:         "bob": (bob.id, bob.username),
+68:         "alice": (alice.id, alice.username),
+69:         "admin": (admin.id, admin.username),
+70:         "other": (other.id, other.username),
+71:         "pid": post.id,
+72:         "bob_display": bob.display_name,
+73:         "alice_display": alice.display_name,
+74:     }
+75: 
+76: pid = info["pid"]
+77: pid2 = None
+78: 
+79: client = app.test_client()
+80: 
+81: results = []
+82: 
+83: 
+84: def check(name, cond, detail=""):
+85:     results.append((name, bool(cond), detail))
+86:     print(f"[{'PASS' if cond else 'FAIL'}] {name}" + ("" if cond else f"  -> {detail}"))
+87:     return cond
+88: 
+89: 
+90: def login(username):
+91:     r = client.post("/api/auth/login", json={"username": username, "password": PWD})
+92:     assert r.status_code == 200, r.get_data(as_text=True)
+93:     return r.get_json()["token"]
+94: 
+95: 
+96: T = {
+97:     "lz": login(info["lz"][1]),
+98:     "bob": login(info["bob"][1]),
+99:     "alice": login(info["alice"][1]),
+100:     "admin": login(info["admin"][1]),
+101:     "other": login(info["other"][1]),
+102: }
+103: HDR = lambda k: {"Authorization": "Bearer " + T[k]}  # noqa: E731
+104: 
+105: 
+106: def post_reply(key, content, parent_id=None):
+107:     body = {"content": content}
+108:     if parent_id is not None:
+109:         body["parent_id"] = parent_id
+110:     return client.post(f"/api/posts/{pid}/replies", json=body, headers=HDR(key))
+111: 
+112: 
+113: # ---------- 读取与鉴权 ----------
+114: r = client.get(f"/api/posts/{pid}")
+115: j = r.get_json()
+116: check("1  游客可读帖子详情且含层级字段",
+117:       r.status_code == 200 and "reply_tree" in j and "replies" in j and "reply_count" in j,
+118:       str(list(j.keys())))
+119: check("2  初始 reply_count=0 / 空树", j["reply_count"] == 0 and j["reply_tree"] == [])
+120: check("3  帖子详情含 is_author 语义字段", "user_id" in j)
+121: 
+122: r = client.post(f"/api/posts/{pid}/replies", json={"content": "hi"})
+123: check("4  未登录回复返回 401", r.status_code == 401)
+124: 
+125: r = post_reply("bob", "   ")
+126: check("5  空内容回复返回 400", r.status_code == 400)
+127: 
+128: r = post_reply("bob", "x" * (config.MAX_REPLY_LENGTH + 1))
+129: check("6  超长回复返回 400", r.status_code == 400)
+130: 
+131: # ---------- 层级创建 ----------
+132: r = post_reply("bob", "第一条一级回复")
+133: n1 = r.get_json()
+134: check("7  一级回复创建成功", r.status_code == 201)
+135: check("8  一级回复 depth=0 / parent_id=None / root_id=自身 id",
+136:       n1["depth"] == 0 and n1["parent_id"] is None and n1["root_id"] == n1["id"], str(n1))
+137: check("9  一级回复 is_author=False", n1["is_author"] is False)
+138: rid1 = n1["id"]
+139: 
+140: r = post_reply("lz", "楼主来回复一下", rid1)
+141: n2 = r.get_json()
+142: check("10 二级回复 depth=1 / parent_id 正确",
+143:       r.status_code == 201 and n2["depth"] == 1 and n2["parent_id"] == rid1, str(n2))
+144: check("11 二级回复 root_id=父回复 id", n2["root_id"] == rid1)
+145: check("12 楼主回复 is_author=True", n2["is_author"] is True)
+146: check("13 reply_to_display_name 指向被回复人",
+147:       n2["reply_to_display_name"] == info["bob_display"], str(n2["reply_to_display_name"]))
+148: check("14 管理员标识正确(role=user)", n2["role"] == "user")
+149: rid2 = n2["id"]
+150: 
+151: r = post_reply("alice", "再往下追一层", rid2)
+152: n3 = r.get_json()
+153: check("15 三级回复 depth=2", r.status_code == 201 and n3["depth"] == 2, str(n3["depth"]))
+154: check("16 三级回复 root_id 继承话题根", n3["root_id"] == rid1)
+155: rid3 = n3["id"]
+156: 
+157: r = post_reply("bob", "第四层（应被展示拉平）", rid3)
+158: n4 = r.get_json()
+159: check("17 第四层回复创建成功", r.status_code == 201)
+160: check("18 第四层展示深度被拉平到 ≤ MAX_REPLY_DEPTH",
+161:       n4["depth"] <= config.MAX_REPLY_DEPTH, f"depth={n4['depth']}")
+162: check("19 第四层引用对象仍为真实被回复人",
+163:       n4["reply_to_display_name"] == info["alice_display"], str(n4["reply_to_display_name"]))
+164: rid4 = n4["id"]
+165: 
+166: # ---------- 树结构 ----------
+167: j = client.get(f"/api/posts/{pid}").get_json()
+168: check("20 reply_count=4", j["reply_count"] == 4, str(j["reply_count"]))
+169: check("21 replies 扁平列表 4 条", len(j["replies"]) == 4)
+170: check("22 扁平列表按时间升序",
+171:       [x["id"] for x in j["replies"]] == sorted(x["id"] for x in j["replies"]))
+172: 
+173: tree = j["reply_tree"]
+174: check("23 树根仅 1 个一级回复", len(tree) == 1, f"roots={len(tree)}")
+175: root = tree[0]
+176: check("24 根节点 depth=0", root["depth"] == 0)
+177: check("25 根节点 reply_count == children 长度",
+178:       root["reply_count"] == len(root["children"]),
+179:       f"{root['reply_count']} vs {len(root['children'])}")
+180: 
+181: 
+182: def walk(nodes, expect_depth=0):
+183:     """深度遍历树，返回 [(id, depth)]，并校验 depth 与位置一致。"""
+184:     out = []
+185:     for n in nodes:
+186:         out.append((n["id"], n["depth"]))
+187:         assert n["depth"] == expect_depth, f"id={n['id']} depth={n['depth']} expect={expect_depth}"
+188:         assert n["reply_count"] == len(n["children"]), f"id={n['id']} reply_count 不一致"
+189:         out.extend(walk(n["children"], expect_depth + 1))
+190:     return out
+191: 
+192: 
+193: flat_tree = walk(tree)
+194: check("26 树中所有节点展示深度 ≤ 2", all(d <= 2 for _, d in flat_tree), str(flat_tree))
+195: check("27 树节点总数=4 且无遗漏", sorted(i for i, _ in flat_tree) == [rid1, rid2, rid3, rid4],
+196:       str(sorted(i for i, _ in flat_tree)))
+197: 
+198: # ---------- parent_id 校验 ----------
+199: with app.app_context():
+200:     p2 = Post(user_id=info["bob"][0], title="另一个帖子", content="x")
+201:     db.session.add(p2)
+202:     db.session.commit()
+203:     pid2 = p2.id
+204: 
+205: r = client.post(f"/api/posts/{pid2}/replies", json={"content": "x", "parent_id": rid1},
+206:                 headers=HDR("alice"))
+207: check("28 跨帖 parent_id 返回 403", r.status_code == 403, str(r.status_code))
+208: 
+209: r = post_reply("alice", "x", 99999)
+210: check("29 不存在的父回复返回 404", r.status_code == 404, str(r.status_code))
+211: 
+212: r = post_reply("alice", "x", "abc")
+213: check("30 非法 parent_id 返回 400", r.status_code == 400, str(r.status_code))
+214: 
+215: r = client.get("/api/posts/999999")
+216: check("31 不存在的帖子返回 404", r.status_code == 404)
+217: 
+218: # ---------- 删除权限与级联 ----------
+219: r = client.delete(f"/api/replies/{rid1}", headers=HDR("other"))
+220: check("32 非作者非管理员删除返回 403", r.status_code == 403, str(r.status_code))
+221: 
+222: r = client.delete(f"/api/replies/{rid1}")
+223: check("33 未登录删除返回 401", r.status_code == 401, str(r.status_code))
+224: 
+225: r = client.delete(f"/api/replies/{rid1}", headers=HDR("admin"))
+226: j = r.get_json()
+227: check("34 管理员级联删除整棵子树(4 条)",
+228:       r.status_code == 200 and j.get("deleted_count") == 4, str(j))
+229: 
+230: j = client.get(f"/api/posts/{pid}").get_json()
+231: check("35 删除后 reply_count=0 / 树为空",
+232:       j["reply_count"] == 0 and j["reply_tree"] == [])
+233: 
+234: with app.app_context():
+235:     check("36 数据库中无残留回复", Reply.query.count() == 0, str(Reply.query.count()))
+236:     check("37 悬空引用不影响其他帖子",
+237:           Reply.query.filter_by(post_id=pid2).count() == 0)
+238: 
+239: r = client.delete("/api/replies/999999", headers=HDR("admin"))
+240: check("38 删除不存在的回复返回 404", r.status_code == 404)
+241: 
+242: # ---------- 作者删除含子回复 ----------
+243: a = post_reply("bob", "A").get_json()["id"]
+244: b = post_reply("alice", "B", a).get_json()["id"]
+245: c3 = post_reply("bob", "C", b).get_json()["id"]
+246: r = client.delete(f"/api/replies/{a}", headers=HDR("bob"))
+247: j = r.get_json()
+248: check("39 作者删除含 2 条孙回复的子树",
+249:       r.status_code == 200 and j.get("deleted_count") == 3, str(j))
+250: with app.app_context():
+251:     check("40 孙回复一并清除",
+252:           all(Reply.query.get(x) is None for x in (a, b, c3)))
+253: 
+254: # ---------- 悬空引用降级 ----------
+255: r = post_reply("bob", "孤儿测试").get_json()
+256: orphan_base = r["id"]
+257: with app.app_context():
+258:     child = Reply(post_id=pid, user_id=info["alice"][0], content="悬挂父引用", parent_id=777777)
+259:     db.session.add(child)
+260:     db.session.commit()
+261:     orphan_child = child.id
+262: j = client.get(f"/api/posts/{pid}").get_json()
+263: flat = {x["id"]: x for x in j["replies"]}
+264: check("41 悬空 parent_id 降级为一级回复",
+265:       flat[orphan_child]["depth"] == 0 and flat[orphan_child]["parent_id"] == 777777,
+266:       str(flat.get(orphan_child)))
+267: check("42 悬空节点出现在树根", any(n["id"] == orphan_child for n in j["reply_tree"]))
+268: 
+269: # ---------- 汇总 ----------
+270: passed = sum(1 for _, ok, _ in results if ok)
+271: total = len(results)
+272: print(f"\n===== {passed}/{total} 项通过 =====")
+273: if passed != total:
+274:     print("失败项：")
+275:     for name, ok, detail in results:
+276:         if not ok:
+277:             print(f"  - {name}  {detail}")
+278: sys.exit(0 if passed == total else 1)
+
+(End of file - total 278 lines)
+</content>

@@ -1,0 +1,266 @@
+<path>D:\桌面\deep\Forum system\backend\routes\posts.py</path>
+<type>file</type>
+<content>
+1: # -*- coding: utf-8 -*-
+2: """
+3: 帖子与回复相关路由。
+4: 
+5: 包含鉴权装饰器、分页、增删查逻辑。
+6: 
+7: V3 新增：
+8: - 回复层级树构建（parent_id / root_id）
+9: - GET  /api/posts/{id}          返回 reply_tree + replies + reply_count
+10: - POST /api/posts/{id}/replies  Body 新增可选 parent_id（楼中楼）
+11: 
+12: 删除回复接口见 routes/replies.py。
+13: """
+14: 
+15: import functools
+16: import math
+17: from datetime import datetime, timezone
+18: 
+19: import jwt
+20: from flask import Blueprint, jsonify, request
+21: 
+22: from config import config
+23: from models import Post, Reply, User, db
+24: 
+25: posts_bp = Blueprint("posts", __name__, url_prefix="/api/posts")
+26: 
+27: 
+28: # ---------- 鉴权装饰器 ----------
+29: 
+30: def require_auth(fn):
+31:     """
+32:     鉴权装饰器：从 Authorization: Bearer <token> 中解析 JWT，
+33:     并将当前用户注入被装饰函数的 `current_user` 参数。
+34:     """
+35: 
+36:     @functools.wraps(fn)
+37:     def wrapper(*args, **kwargs):
+38:         header = request.headers.get("Authorization", "")
+39:         if not header.startswith("Bearer "):
+40:             return jsonify({"error": "缺少有效的 Bearer Token"}), 401
+41: 
+42:         token = header[len("Bearer "):].strip()
+43:         if not token:
+44:             return jsonify({"error": "缺少有效的 Bearer Token"}), 401
+45: 
+46:         try:
+47:             payload = jwt.decode(
+48:                 token,
+49:                 config.JWT_SECRET_KEY,
+50:                 algorithms=[config.JWT_ALGORITHM],
+51:             )
+52:         except jwt.ExpiredSignatureError:
+53:             return jsonify({"error": "Token 已过期，请重新登录"}), 401
+54:         except jwt.InvalidTokenError:
+55:             return jsonify({"error": "Token 无效"}), 401
+56: 
+57:         # 优先按 id 查用户；查询失败则视为无效
+58:         try:
+59:             user_id = int(payload.get("sub"))
+60:         except (TypeError, ValueError):
+61:             return jsonify({"error": "Token 无效"}), 401
+62: 
+63:         user = User.query.get(user_id)
+64:         if not user:
+65:             return jsonify({"error": "Token 对应的用户不存在"}), 401
+66: 
+67:         kwargs["current_user"] = user
+68:         return fn(*args, **kwargs)
+69: 
+70:     return wrapper
+71: 
+72: 
+73: # ---------- 辅助函数 ----------
+74: 
+75: def _get_pagination():
+76:     """从查询参数中读取分页信息，并做边界收敛。"""
+77:     try:
+78:         page = int(request.args.get("page", 1))
+79:         limit = int(request.args.get("limit", config.DEFAULT_PAGE_SIZE))
+80:     except ValueError:
+81:         page = 1
+82:         limit = config.DEFAULT_PAGE_SIZE
+83: 
+84:     page = max(1, page)
+85:     limit = max(1, min(limit, config.MAX_PAGE_SIZE))
+86:     return page, limit
+87: 
+88: 
+89: def _parse_dt(value):
+90:     """将 datetime 转为 ISO 字符串，None 安全。"""
+91:     if value is None:
+92:         return None
+93:     if isinstance(value, str):
+94:         return value
+95:     try:
+96:         # 如果数据库返回的是 naive datetime，附加 UTC 时区信息
+97:         if value.tzinfo is None:
+98:             value = value.replace(tzinfo=timezone.utc)
+99:         return value.isoformat()
+100:     except AttributeError:
+101:         return str(value)
+102: 
+103: 
+104: # ---------- 回复层级构建（V3 新增） ----------
+105: 
+106: def _reply_chain_info(reply, index):
+107:     """一次回溯同时计算真实链信息。
+108: 
+109:     返回 (真实深度, 话题根回复 id)：
+110:     - 真实深度：沿 parent_id 链向上回溯到一级回复的步数（一级回复 = 0）
+111:     - 话题根 id：回溯到的那条一级回复的 id
+112: 
+113:     含环保护与悬空引用保护，避免脏数据导致死循环。
+114:     """
+115:     depth = 0
+116:     cur = reply
+117:     seen = set()
+118:     while cur is not None and cur.parent_id:
+119:         if cur.id in seen:
+120:             break
+121:         seen.add(cur.id)
+122:         parent = index.get(cur.parent_id)
+123:         if parent is None:
+124:             break
+125:         cur = parent
+126:         depth += 1
+127:     return depth, cur.id
+128: 
+129: 
+130: def _prepare_reply_structure(replies, max_depth):
+131:     """预计算回复树的展示结构。
+132: 
+133:     replies 必须已按 created_at 升序（父回复必先于子回复出现，便于迭代求解）。
+134: 
+135:     返回 (index, depth_map, root_map, children_map, display_parent)：
+136:     - index:          id → Reply ORM 对象
+137:     - depth_map:      id → 展示深度（已按 max_depth 收敛，0/1/2…）
+138:     - root_map:       id → 话题根回复 id（真实值，一级回复为 None）
+139:     - children_map:   展示父 id → [展示子 id, ...]
+140:     - display_parent: id → 展示父 id（None 表示展示为一级）
+141:     """
+142:     index = {r.id: r for r in replies}
+143: 
+144:     # 1) 真实链信息，用于话题根 id 与溢出判定
+145:     chain = {r.id: _reply_chain_info(r, index) for r in replies}
+146: 
+147:     # 2) 决定每个节点的"展示父节点"
+148:     #    - 未超过深度上限：挂到真实父节点下
+149:     #    - 超过深度上限：上提到父节点所在的展示层级，作为同级
+150:     display_parent = {}
+151:     for r in replies:
+152:         if r.parent_id is None:
+153:             display_parent[r.id] = None
+154:             continue
+155:         real_parent = index.get(r.parent_id)
+156:         if real_parent is None:
+157:             # 悬空引用（父回复已被单独删除等）：降级为一级回复
+158:             display_parent[r.id] = None
+159:             continue
+160:         if chain[r.parent_id][0] + 1 <= max_depth:
+161:             display_parent[r.id] = r.parent_id
+162:         else:
+163:             display_parent[r.id] = display_parent.get(r.parent_id)
+164: 
+165:     # 3) 展示深度（迭代求解，父节点必先于子节点）
+166:     depth_map = {}
+167:     for r in replies:
+168:         parent_id = display_parent[r.id]
+169:         depth_map[r.id] = 0 if parent_id is None else depth_map[parent_id] + 1
+170: 
+171:     # 4) 话题根 id（取真实值，一级回复为 None）
+172:     root_map = {rid: info[1] for rid, info in chain.items()}
+173: 
+174:     # 5) 展示父子映射
+175:     children_map = {}
+176:     for r in replies:
+177:         parent_id = display_parent[r.id]
+178:         if parent_id is not None:
+179:             children_map.setdefault(parent_id, []).append(r.id)
+180: 
+181:     return index, depth_map, root_map, children_map, display_parent
+182: 
+183: 
+184: def _reply_node_dict(reply, index, depth_map, root_map, children_map, post_author_id):
+185:     """将单条 Reply 序列化为对外 JSON 节点（不含 children）。"""
+186:     parent = index.get(reply.parent_id) if reply.parent_id else None
+187:     author = reply.author
+188:     return {
+189:         "id": reply.id,
+190:         "post_id": reply.post_id,
+191:         "user_id": reply.user_id,
+192:         "username": author.username if author else None,
+193:         "nickname": author.nickname if author else None,
+194:         "display_name": author.display_name if author else None,
+195:         "avatar_url": author.avatar_url if author else None,
+196:         "role": author.role if author else None,
+197:         # 是否为楼主（帖子作者），供前端佩戴「楼主」徽标
+198:         "is_author": reply.user_id == post_author_id,
+199:         "content": reply.content,
+200:         "created_at": _parse_dt(reply.created_at),
+201:         "parent_id": reply.parent_id,
+202:         "root_id": root_map.get(reply.id),
+203:         "depth": depth_map.get(reply.id, 0),
+204:         # 被"真实"父回复人的显示名（即使展示上被拉平，引用对象仍准确）
+205:         "reply_to_display_name": (
+206:             parent.author.display_name if parent is not None and parent.author else None
+207:         ),
+208:         "reply_count": len(children_map.get(reply.id, [])),
+209:     }
+210: 
+211: 
+212: def _build_reply_tree(replies, post_author_id, max_depth):
+213:     """构建展示用嵌套回复树。
+214: 
+215:     返回 (tree, flat)：
+216:     - tree: 嵌套结构，每个节点含 children（最多 max_depth+1 层）
+217:     - flat: 扁平列表（按时间升序），字段同 tree 节点，用于兼容与统计
+218:     """
+219:     index, depth_map, root_map, children_map, display_parent = _prepare_reply_structure(
+220:         replies, max_depth
+221:     )
+222: 
+223:     nodes = {
+224:         r.id: _reply_node_dict(
+225:             r, index, depth_map, root_map, children_map, post_author_id
+226:         )
+227:         for r in replies
+228:     }
+229:     flat = [nodes[r.id] for r in replies]
+230: 
+231:     def attach_children(node):
+232:         node["children"] = [nodes[kid] for kid in children_map.get(node["id"], [])]
+233:         for child in node["children"]:
+234:             attach_children(child)
+235:         return node
+236: 
+237:     tree = [
+238:         attach_children(nodes[r.id])
+239:         for r in replies
+240:         if display_parent[r.id] is None
+241:     ]
+242:     return tree, flat
+243: 
+244: 
+245: def _reply_node(reply, max_depth, post_author_id):
+246:     """序列化单条回复（用于新建回复的响应体），含层级字段。"""
+247:     siblings = (
+248:         Reply.query.filter_by(post_id=reply.post_id)
+249:         .order_by(Reply.created_at.asc(), Reply.id.asc())
+250:         .all()
+251:     )
+252:     index, depth_map, root_map, children_map, _ = _prepare_reply_structure(
+253:         siblings, max_depth
+254:     )
+255:     return _reply_node_dict(
+256:         reply, index, depth_map, root_map, children_map, post_author_id
+257:     )
+258: 
+259: 
+260: # ---------- 路由 ----------
+
+(Showing lines 1-260 of 510. Use offset=261 to continue.)
+</content>

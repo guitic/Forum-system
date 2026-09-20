@@ -1,0 +1,226 @@
+<path>D:\桌面\deep\Forum system\deploy\monitor.py</path>
+<type>file</type>
+<content>
+40: # ============================================================================
+41: # 配置区 - 修改此处即可适配实际环境
+42: # ============================================================================
+43: 
+44: CONFIG: Dict[str, Any] = {
+45:     # ---------------------------- 日志路径 ----------------------------
+46:     "nginx_access_log": "/var/log/nginx/forum_access.log",
+47:     "nginx_error_log":  "/var/log/nginx/forum_error.log",
+48:     # 兼容默认 Nginx 日志
+49:     "nginx_default_access_log": "/var/log/nginx/access.log",
+50:     "nginx_default_error_log":  "/var/log/nginx/error.log",
+51: 
+52:     # ---------------------------- systemd 服务 ----------------------------
+53:     "service_name": "forum-api",
+54: 
+55:     # ---------------------------- 阈值 ----------------------------
+56:     # 5xx 状态码: 检查时间窗口 (分钟) 内出现次数超过此值即告警
+57:     "error_window_minutes": 5,
+58:     "error_5xx_threshold": 10,
+59:     # error.log 中 error 级别及以上出现次数阈值
+60:     "error_log_threshold": 5,
+61:     # 磁盘使用率 (%) 超过告警
+62:     "disk_threshold": 85,
+63:     # 内存使用率 (%) 超过告警
+64:     "memory_threshold": 90,
+65:     # 5 分钟 CPU 负载 / CPU 核数 超过告警
+66:     "load_threshold": 2.0,
+67:     # 连续失败次数 (用于抑制重复告警)
+68:     "consecutive_failures_threshold": 3,
+69: 
+70:     # ---------------------------- SMTP ----------------------------
+71:     "smtp_host": "smtp.example.com",
+72:     "smtp_port": 465,
+73:     "smtp_use_ssl": True,
+74:     "smtp_use_starttls": False,
+75:     "smtp_user": "forum-alert@example.com",
+76:     "smtp_password": "[REDACTED:credential]",
+77:     "alert_from": "Forum Monitor <forum-alert@example.com>",
+78:     "alert_to": ["admin@example.com"],
+79: 
+80:     # ---------------------------- 数据库 ----------------------------
+81:     "db_host": "127.0.0.1",
+82:     "db_port": 3306,
+83:     "db_user": "forum",
+84:     "db_password": "[REDACTED:credential]",
+85:     "db_name": "forum",
+86:     "db_check_timeout": 5,
+87: 
+88:     # ---------------------------- 报告 ----------------------------
+89:     "state_dir": "/var/lib/forum/monitor",
+90:     "log_file": "/var/log/forum/monitor.log",
+91:     "report_retention_days": 7,
+92:     "verbose": False,
+93: }
+94: 
+95: 
+96: # ============================================================================
+97: # 日志
+98: # ============================================================================
+99: 
+100: def _setup_logger() -> logging.Logger:
+101:     logger = logging.getLogger("forum_monitor")
+102:     logger.setLevel(logging.DEBUG if CONFIG["verbose"] else logging.INFO)
+103:     logger.handlers.clear()
+104: 
+105:     fh = logging.FileHandler(CONFIG["log_file"], encoding="utf-8")
+106:     fh.setFormatter(logging.Formatter(
+107:         "%(asctime)s [%(levelname)s] %(message)s",
+108:         datefmt="%Y-%m-%d %H:%M:%S",
+109:     ))
+110:     logger.addHandler(fh)
+111: 
+112:     ch = logging.StreamHandler(sys.stdout)
+113:     ch.setLevel(logging.DEBUG if CONFIG["verbose"] else logging.INFO)
+114:     ch.setFormatter(logging.Formatter(
+115:         "%(asctime)s [%(levelname)s] %(message)s",
+116:         datefmt="%H:%M:%S",
+117:     ))
+118:     logger.addHandler(ch)
+119: 
+120:     return logger
+121: 
+122: 
+123: LOG = _setup_logger()
+124: 
+125: 
+126: # ============================================================================
+127: # 工具函数
+128: # ============================================================================
+129: 
+130: def run_cmd(cmd: str, timeout: int = 15) -> Tuple[int, str, str]:
+131:     """执行 shell 命令并返回 (exit_code, stdout, stderr)。"""
+132:     try:
+133:         p = subprocess.run(
+134:             cmd, shell=True, capture_output=True, text=True, timeout=timeout,
+135:         )
+136:         return p.returncode, p.stdout, p.stderr
+137:     except subprocess.TimeoutExpired:
+138:         return -1, "", "timeout"
+139:     except Exception as exc:  # pragma: no cover
+140:         return -1, "", str(exc)
+141: 
+142: 
+143: def file_recently_written(path: str) -> bool:
+144:     """判断文件在过去若干秒内被写入。"""
+145:     p = Path(path)
+146:     if not p.exists():
+147:         return False
+148:     age = time.time() - p.stat().st_mtime
+149:     return age < 3600  # 1 小时内
+150: 
+151: 
+152: def parse_log_ts(line: str) -> Optional[_dt.datetime]:
+153:     """从 Nginx access log 中解析时间戳 (支持常见格式)。"""
+154:     # Nginx 默认格式: 2024/01/01 12:34:56 +0800
+155:     m = re.search(r"\[([^\]]+)\]", line)
+156:     if not m:
+157:         return None
+158:     raw = m.group(1)
+159:     for fmt in (
+160:         "%d/%b/%Y:%H:%M:%S %z",
+161:         "%Y-%m-%d %H:%M:%S",
+162:         "%Y-%m-%dT%H:%M:%S",
+163:     ):
+164:         try:
+165:             return _dt.datetime.strptime(raw, fmt)
+166:         except ValueError:
+167:             continue
+168:     return None
+169: 
+170: 
+171: def tail_lines(path: str, since: Optional[_dt.datetime] = None) -> List[str]:
+172:     """读取日志，可按时间窗口过滤。"""
+173:     p = Path(path)
+174:     if not p.exists():
+175:         return []
+176:     try:
+177:         with p.open("r", encoding="utf-8", errors="replace") as f:
+178:             lines = f.readlines()
+179:     except Exception as exc:
+180:         LOG.warning("读取日志失败 %s: %s", path, exc)
+181:         return []
+182:     if since is None:
+183:         return lines
+184:     result: List[str] = []
+185:     for ln in lines:
+186:         ts = parse_log_ts(ln)
+187:         if ts is None:
+188:             # 无时间戳的行（如 error.log 多行），保守保留
+189:             result.append(ln)
+190:             continue
+191:         if ts >= since:
+192:             result.append(ln)
+193:     return result
+194: 
+195: 
+196: def parse_access_log_status(line: str) -> Optional[int]:
+197:     """解析 access log 中的 HTTP 状态码。"""
+198:     # 标准 Nginx 格式: ... "GET / HTTP/1.1" 200 ...
+199:     m = re.search(r'"[^"]*"\s+(\d{3})\s', line)
+200:     if m:
+201:         try:
+202:             return int(m.group(1))
+203:         except ValueError:
+204:             return None
+205:     # 兼容自定义格式: 状态码作为单独的字段
+206:     m = re.search(r"\s(\d{3})\s+(\d+)", line)
+207:     if m:
+208:         try:
+209:             return int(m.group(1))
+210:         except ValueError:
+211:             return None
+212:     return None
+213: 
+214: 
+215: def parse_error_log_level(line: str) -> Optional[str]:
+216:     """解析 error.log 中的级别 (debug/info/notice/warning/error/crit/alert/emerg)。"""
+217:     # Nginx error.log 格式: 2024/01/01 12:34:56 [error] ...
+218:     m = re.search(r"\[(\w+)\]", line)
+219:     return m.group(1).lower() if m else None
+220: 
+221: 
+222: def shell_awk(pattern: str, file: str) -> Tuple[int, str]:
+223:     """调用系统 awk 做轻量检索。"""
+224:     cmd = f"grep -cE {pattern!r} {file!r} 2>/dev/null"
+225:     code, out, _ = run_cmd(cmd)
+226:     try:
+227:         return int(out.strip() or "0")
+228:     except ValueError:
+229:         return 0
+230: 
+231: 
+232: # ============================================================================
+233: # 检查项 - 返回 (状态, 详情, 是否告警)
+234: # ============================================================================
+235: 
+236: @dataclass
+237: class CheckResult:
+238:     name: str
+239:     ok: bool
+240:     detail: str
+241:     alert: bool = False
+242: 
+243: 
+244: def check_5xx() -> CheckResult:
+245:     """检查 access.log 中 5xx 状态码。"""
+246:     access = CONFIG["nginx_access_log"]
+247:     if not Path(access).exists():
+248:         access = CONFIG["nginx_default_access_log"]
+249: 
+250:     since = _dt.datetime.now() - _dt.timedelta(minutes=CONFIG["error_window_minutes"])
+251:     lines = tail_lines(access, since=since)
+252: 
+253:     count_5xx = 0
+254:     count_5xx_sample: List[str] = []
+255:     for ln in lines:
+256:         status = parse_access_log_status(ln)
+257:         if status is not None and 500 <= status < 600:
+258:             count_5xx += 1
+259:             if len(count_5xx_sample) < 5:
+
+(Showing lines 40-259 of 682. Use offset=260 to continue.)
+</content>

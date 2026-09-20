@@ -1,0 +1,442 @@
+<path>D:\桌面\deep\Forum system\frontend\js\api.js</path>
+<type>file</type>
+<content>
+358:     var now = Date.now();
+359:     var diff = Math.floor((now - date.getTime()) / 1000);
+360: 
+361:     if (diff < 0) {
+362:       // 未来时间，直接显示
+363:       return API._formatDateTime(date);
+364:     }
+365: 
+366:     var sec = 60;
+367:     var min = 60;
+368:     var hour = 24;
+369:     var day = 30;
+370: 
+371:     if (diff < 10) return "刚刚";
+372:     if (diff < 60) return diff + "秒前";
+373:     if (diff < 60 * min) return Math.floor(diff / 60) + "分钟前";
+374:     if (diff < 60 * 60 * hour) return Math.floor(diff / (60 * 60)) + "小时前";
+375:     if (diff < 60 * 60 * 24 * 7) return Math.floor(diff / (60 * 60 * 24)) + "天前";
+376:     if (diff < 60 * 60 * 24 * day) {
+377:       var weeks = Math.floor(diff / (60 * 60 * 24 * 7));
+378:       return weeks + "周前";
+379:     }
+380:     return API._formatDateTime(date);
+381:   };
+382: 
+383:   API._formatDateTime = function (date) {
+384:     function pad(n) {
+385:       return n < 10 ? "0" + n : "" + n;
+386:     }
+387:     return (
+388:       date.getFullYear() +
+389:       "-" +
+390:       pad(date.getMonth() + 1) +
+391:       "-" +
+392:       pad(date.getDate()) +
+393:       " " +
+394:       pad(date.getHours()) +
+395:       ":" +
+396:       pad(date.getMinutes())
+397:     );
+398:   };
+399: 
+400:   /**
+401:    * 获取完整日期时间字符串（用于 tooltip / 详情）
+402:    */
+403:   API.formatDateTime = function (input) {
+404:     var date = API._toDate(input);
+405:     if (!date) return String(input);
+406:     return API._formatDateTime(date);
+407:   };
+408: 
+409:   /* ------------------------------------------------------------------------
+410:    * XSS 防护
+411:    *
+412:    * 采用白名单方式清洗标记语言生成后的 HTML：
+413:    * - 移除危险标签：script/style/iframe/object/embed/form/link/meta/base
+414:    * - 移除危险属性：on*（事件）、style（含不安全 CSS）、formaction、srcdoc
+415:    * - 校验 href/src 协议：仅允许 http(s)/mailto/tel/#/相对路径
+416:    * - 保留 markdown 常用标签
+417:    * ---------------------------------------------------------------------- */
+418: 
+419:   var ALLOWED_TAGS = {
+420:     p: 1, br: 1, hr: 1,
+421:     h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1,
+422:     ul: 1, ol: 1, li: 1,
+423:     blockquote: 1,
+424:     code: 1, pre: 1,
+425:     a: 1,
+426:     em: 1, i: 1, strong: 1, b: 1,
+427:     del: 1, ins: 1, s: 1, strike: 1,
+428:     sup: 1, sub: 1,
+429:     table: 1, thead: 1, tbody: 1, tfoot: 1, tr: 1, th: 1, td: 1,
+430:     span: 1,
+431:     img: 1,
+432:     u: 1,
+433:   };
+434: 
+435:   var ALLOWED_ATTRS = {
+436:     a: ["href", "title", "target", "rel"],
+437:     img: ["src", "alt", "title"],
+438:     code: ["class"],
+439:     span: ["class"],
+440:     td: ["align"],
+441:     th: ["align"],
+442:   };
+443: 
+444:   var SAFE_PROTOCOLS = ["http:", "https:", "mailto:", "tel:", "#"];
+445: 
+446:   /**
+447:    * 校验 URL 是否安全（阻止 javascript: / data: 等危险协议）
+448:    */
+449:   function isSafeUrl(url) {
+450:     if (!url) return false;
+451:     var u = url.trim().toLowerCase();
+452:     // 阻止控制字符
+453:     if (/[\u0000-\u001f\u007f]/.test(u)) return false;
+454:     // 阻止 javascript: data: vbscript: 等
+455:     if (/^(javascript|data|vbscript|file):/i.test(u)) return false;
+456:     // 允许相对路径与锚点
+457:     if (u.charAt(0) === "/" || u.charAt(0) === "." || u.charAt(0) === "#" || u.charAt(0) === "?") {
+458:       return true;
+459:     }
+460:     // 必须以受信任协议开头
+461:     for (var i = 0; i < SAFE_PROTOCOLS.length; i++) {
+462:       if (u.indexOf(SAFE_PROTOCOLS[i]) === 0) return true;
+463:     }
+464:     return false;
+465:   }
+466: 
+467:   /**
+468:    * 解析属性字符串，过滤危险属性
+469:    * @param {string} attrString
+470:    * @param {string} tagName
+471:    * @returns {string}
+472:    */
+473:   function filterAttrs(attrString, tagName) {
+474:     if (!attrString) return "";
+475:     var allowed = ALLOWED_ATTRS[tagName] || [];
+476:     var result = [];
+477:     var regex = /([a-zA-Z_:][\w:.-]*)\s*(?:=\s*("([^"]*)"|'([^']*)'|[^\s"'>]+))?/g;
+478:     var m;
+479:     while ((m = regex.exec(attrString)) !== null) {
+480:       var name = m[1].toLowerCase();
+481:       var value = m[3] !== undefined
+482:         ? m[3]
+483:         : m[4] !== undefined
+484:           ? m[4]
+485:           : m[5] !== undefined
+486:             ? m[5]
+487:             : "";
+488: 
+489:       // 跳过危险属性
+490:       if (name.indexOf("on") === 0) continue;
+491:       if (name === "style") continue;
+492:       if (name === "formaction" || name === "srcdoc" || name === "xlink:href") continue;
+493:       if (allowed.indexOf(name) === -1) continue;
+494: 
+495:       // 对 URL 属性做协议校验
+496:       if (name === "href" || name === "src") {
+497:         if (!isSafeUrl(value)) continue;
+498:       }
+499: 
+500:       result.push(name + '="' + escapeAttr(value) + '"');
+501:     }
+502:     return result.join(" ");
+503:   }
+504: 
+505:   function escapeAttr(v) {
+506:     return String(v)
+507:       .replace(/&/g, "&amp;")
+508:       .replace(/"/g, "&quot;")
+509:       .replace(/</g, "&lt;")
+510:       .replace(/>/g, "&gt;");
+511:   }
+512: 
+513:   /**
+514:    * 清洗 HTML：白名单标签 + 过滤危险属性 + 阻止危险协议
+515:    * @param {string} html
+516:    * @returns {string}
+517:    */
+518:   API.sanitize = function (html) {
+519:     if (!html) return "";
+520:     try {
+521:       return sanitizeInner(html);
+522:     } catch (e) {
+523:       // 兜底：DOM 清洗异常时降级为纯文本转义，保证页面不白屏
+524:       console.warn("[sanitize] fallback to plain text:", e && e.message);
+525:       return String(html)
+526:         .replace(/&/g, "&amp;")
+527:         .replace(/</g, "&lt;")
+528:         .replace(/>/g, "&gt;")
+529:         .replace(/"/g, "&quot;");
+530:     }
+531:   };
+532: 
+533:   function sanitizeInner(html) {
+534:     // 移除隐藏 HTML 注释（防止条件注释攻击等）
+535:     html = html.replace(/<!--[\s\S]*?-->/g, "");
+536:     // 移除 <?...?> 处理指令
+537:     html = html.replace(/<\?[\s\S]*?\?>/g, "");
+538: 
+539:     var doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
+540:     var body = doc.body;
+541: 
+542:     // 先收集所有元素节点（避免遍历中修改树导致迭代状态错乱）。
+543:     // 注意：body 属于 DOMParser 解析出的独立 document，
+544:     // 不能用主文档的 Range.createNodeIterator 跨文档遍历，
+545:     // 这里改用纯 DOM 递归遍历，兼容性最好。
+546:     var allElements = [];
+547:     (function collect(node) {
+548:       var child = node.firstChild;
+549:       while (child) {
+550:         if (child.nodeType === 1) {
+551:           allElements.push(child);
+552:           collect(child);
+553:         }
+554:         child = child.nextSibling;
+555:       }
+556:     })(body);
+557: 
+558:     var DANGEROUS_TAGS = ["script", "style", "iframe", "object", "embed", "link", "meta", "base", "form", "input", "button", "select", "textarea"];
+559: 
+560:     allElements.forEach(function (node) {
+561:       // 节点可能已被父节点替换/移除，跳过
+562:       if (!node.parentNode) return;
+563: 
+564:       var tag = node.tagName.toLowerCase();
+565:       if (!ALLOWED_TAGS[tag]) {
+566:         if (DANGEROUS_TAGS.indexOf(tag) !== -1) {
+567:           // 危险标签：整体删除（含子节点）
+568:           node.parentNode.removeChild(node);
+569:         } else {
+570:           // 非危险标签：解包，保留文本内容
+571:           // 用 body 所属文档创建片段，避免跨文档 Fragment 兼容性问题
+572:           var frag = body.ownerDocument.createDocumentFragment();
+573:           var child = node.firstChild;
+574:           while (child) {
+575:             frag.appendChild(child);
+576:             child = node.firstChild;
+577:           }
+578:           node.parentNode.replaceChild(frag, node);
+579:         }
+580:         return;
+581:       }
+582: 
+583:       // 对白名单标签做属性过滤
+584:       var tagLower = tag;
+585:       var allowed = ALLOWED_ATTRS[tagLower] || [];
+586:       // 先读取属性，再逐个移除/重建
+587:       var existing = [];
+588:       for (var i = 0; i < node.attributes.length; i++) {
+589:         var attrName = node.attributes[i].name;
+590:         var attrVal = node.attributes[i].value;
+591:         existing.push({ name: attrName, value: attrVal });
+592:       }
+593:       // 清空属性
+594:       while (node.attributes.length) {
+595:         node.removeAttribute(node.attributes[0].name);
+596:       }
+597:       // 重建安全属性
+598:       existing.forEach(function (attr) {
+599:         var name = attr.name.toLowerCase();
+600:         var val = attr.value;
+601:         if (name.indexOf("on") === 0) return;
+602:         if (name === "style" || name === "formaction" || name === "srcdoc" || name === "xlink:href") return;
+603:         if (allowed.indexOf(name) === -1) return;
+604:         if ((name === "href" || name === "src") && !isSafeUrl(val)) return;
+605:         try {
+606:           node.setAttribute(name, val);
+607:         } catch (e) { /* ignore */ }
+608:       });
+609: 
+610:       // a 标签统一加 rel="noopener" 防反向 tabnabbing
+611:       if (tag === "a") {
+612:         node.setAttribute("rel", "noopener noreferrer");
+613:         if (!node.getAttribute("target")) node.setAttribute("target", "_blank");
+614:       }
+615:     });
+616: 
+617:     return body.innerHTML;
+618:   }
+619: 
+620:   /* ------------------------------------------------------------------------
+621:    * DOM 工具
+622:    * ---------------------------------------------------------------------- */
+623: 
+624:   /**
+625:    * 创建元素
+626:    * @param {string} tag
+627:    * @param {Object} [props] 例如 {class:'btn', text:'hi', attrs:{href:'#'}}
+628:    * @param {Array|Node|string} [children]
+629:    */
+630:   API.el = function (tag, props, children) {
+631:     var node = document.createElement(tag);
+632:     props = props || {};
+633:     if (props.class) node.className = props.class;
+634:     if (props.id) node.id = props.id;
+635:     if (props.text !== undefined) node.textContent = props.text;
+636:     if (props.attrs) {
+637:       Object.keys(props.attrs).forEach(function (k) {
+638:         node.setAttribute(k, props.attrs[k]);
+639:       });
+640:     }
+641:     if (props.dataset) {
+642:       Object.keys(props.dataset).forEach(function (k) {
+643:         node.dataset[k] = props.dataset[k];
+644:       });
+645:     }
+646:     if (children) {
+647:       var list = Array.isArray(children) ? children : [children];
+648:       list.forEach(function (c) {
+649:         if (c == null) return;
+650:         if (typeof c === "string" || typeof c === "number") {
+651:           node.appendChild(document.createTextNode(String(c)));
+652:         } else {
+653:           node.appendChild(c);
+654:         }
+655:       });
+656:     }
+657:     return node;
+658:   };
+659: 
+660:   /**
+661:    * 文本摘要：去掉 Markdown 标记后截取前 N 字
+662:    */
+663:   API.excerpt = function (text, max) {
+664:     if (!text) return "";
+665:     max = max || 100;
+666:     var plain = String(text)
+667:       .replace(/```[\s\S]*?```/g, " ")          // 代码块
+668:       .replace(/`([^`]+)`/g, "$1")              // 行内代码
+669:       .replace(/!\[([^\]]*)\]\([^)]*\)/g, " ") // 图片
+670:       .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // 链接
+671:       .replace(/[#*_~>]/g, "")                  // 标记符号
+672:       .replace(/\s+/g, " ")
+673:       .trim();
+674:     if (plain.length <= max) return plain;
+675:     return plain.slice(0, max) + "…";
+676:   };
+677: 
+678:   /**
+679:    * 头像字母：取用户名首字母（中文取首字）
+680:    * 如果本地缓存有头像 URL，优先返回图片标记
+681:    */
+682:   API.avatarChar = function (name) {
+683:     if (!name) return "?";
+684:     var s = String(name).trim();
+685:     if (!s) return "?";
+686:     // 中文/日文/韩文取首字符；英文取首字母
+687:     var c = s.charAt(0);
+688:     return /[一-龥぀-ゟ゠-ヿ가-힯]/.test(c) ? c : c.toUpperCase();
+689:   };
+690: 
+691:   /* ------------------------------------------------------------------------
+692:    * 用户中心接口（V2）
+693:    * ---------------------------------------------------------------------- */
+694: 
+695:   /**
+696:    * 获取当前用户资料
+697:    * @returns {Promise<{id,username,nickname,bio,avatar_url,role,created_at}>}
+698:    */
+699:   API.getProfile = function () {
+700:     return request("/api/user/profile", {
+701:       method: "GET",
+702:       auth: true,
+703:     });
+704:   };
+705: 
+706:   /**
+707:    * 更新昵称与简介
+708:    * @param {Object} data  {nickname, bio}
+709:    */
+710:   API.updateProfile = function (data) {
+711:     return request("/api/user/profile", {
+712:       method: "PUT",
+713:       body: data,
+714:       auth: true,
+715:     });
+716:   };
+717: 
+718:   /**
+719:    * 修改密码
+720:    * @param {string} oldPassword
+721:    * @param {string} newPassword
+722:    */
+723:   API.changePassword = [REDACTED:credential] (oldPassword, newPassword) {
+724:     return request("/api/user/password", {
+725:       method: "POST",
+726:       body: { old_password: [REDACTED:credential], new_password: [REDACTED:credential] },
+727:       auth: true,
+728:     });
+729:   };
+730: 
+731:   /**
+732:    * 上传头像
+733:    * @param {File} file 图片文件对象
+734:    */
+735:   API.uploadAvatar = function (file) {
+736:     var token = API.getToken();
+737:     var formData = new FormData();
+738:     formData.append("file", file);
+739: 
+740:     var url = buildUrl("/api/user/avatar");
+741:     var controller = new AbortController();
+742:     var timeout = setTimeout(function () { controller.abort(); }, 30000);
+743: 
+744:     return fetch(url, {
+745:       method: "POST",
+746:       headers: token ? { "Authorization": "Bearer " + token } : {},
+747:       body: formData,
+748:       credentials: "same-origin",
+749:       signal: controller.signal,
+750:     }).then(function (response) {
+751:       clearTimeout(timeout);
+752:       var ct = response.headers.get("Content-Type") || "";
+753:       var isJson = ct.indexOf("application/json") !== -1;
+754:       return response.text().then(function (text) {
+755:         var data;
+756:         try { data = isJson ? JSON.parse(text) : { _raw: text }; }
+757:         catch (e) { data = { _raw: text }; }
+758: 
+759:         if (response.status === 401) {
+760:           handleUnauthorized();
+761:           var ue = new Error("登录已过期，请重新登录");
+762:           ue.status = 401;
+763:           ue.data = data;
+764:           throw ue;
+765:         }
+766: 
+767:         if (!response.ok) {
+768:           var msg = extractError(data, "请求失败（HTTP " + response.status + "）");
+769:           var err = new Error(msg);
+770:           err.status = response.status;
+771:           err.data = data;
+772:           throw err;
+773:         }
+774: 
+775:         return data;
+776:       });
+777:     }).catch(function (err) {
+778:       if (err && err.name === "AbortError") {
+779:         throw new Error("请求超时，请检查网络连接或后端服务是否启动");
+780:       }
+781:       throw err;
+782:     });
+783:   };
+784: 
+785:   /* ------------------------------------------------------------------------
+786:    * 暴露到全局
+787:    * ---------------------------------------------------------------------- */
+788:   global.ForumAPI = API;
+789:   // 同时挂载到 window 便于旧代码访问
+790:   if (typeof window !== "undefined") {
+791:     window.ForumAPI = API;
+792:   }
+793: })(typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : this));
+
+(End of file - total 793 lines)
+</content>

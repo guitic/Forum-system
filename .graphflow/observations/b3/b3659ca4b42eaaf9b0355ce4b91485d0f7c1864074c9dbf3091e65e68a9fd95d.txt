@@ -1,0 +1,799 @@
+<path>D:\桌面\deep\Forum system\frontend\js\api.js</path>
+<type>file</type>
+<content>
+1: /* ==========================================================================
+2:    api.js - API 请求封装
+3:    - 统一处理 fetch、Bearer Token 注入、错误响应
+4:    - 401 自动跳转 auth.html
+5:    - 暴露全局 ForumAPI 命名空间，供 index.js / post.js / auth.js 调用
+6:    ========================================================================== */
+7: 
+8: (function (global) {
+9:   "use strict";
+10: 
+11:   // 后端 BaseURL：
+12:   //   Flask 直接提供前端文件（本地开发 + 生产部署均适用），留空即可
+13:   //   如使用独立的前端服务器，可设置后端地址，例如 'http://127.0.0.1:5000'
+14:   var BASE_URL = "";
+15: 
+16:   // Token 在 localStorage 中的 key
+17:   var TOKEN_KEY = "[REDACTED:credential]";
+18: 
+19:   var API = {};
+20: 
+21:   /* ------------------------------------------------------------------------
+22:    * Token 管理
+23:    * ---------------------------------------------------------------------- */
+24:   API.getToken = function () {
+25:     try {
+26:       return localStorage.getItem(TOKEN_KEY) || "";
+27:     } catch (e) {
+28:       return "";
+29:     }
+30:   };
+31: 
+32:   API.setToken = function (token) {
+33:     try {
+34:       if (token) localStorage.setItem(TOKEN_KEY, token);
+35:       else localStorage.removeItem(TOKEN_KEY);
+36:     } catch (e) {
+37:       // ignore
+38:     }
+39:   };
+40: 
+41:   API.clearToken = function () {
+42:     API.setToken("");
+43:   };
+44: 
+45:   API.isLoggedIn = function () {
+46:     return !!API.getToken();
+47:   };
+48: 
+49:   /* ------------------------------------------------------------------------
+50:    * 工具函数
+51:    * ---------------------------------------------------------------------- */
+52: 
+53:   /**
+54:    * 构造带 query 的 URL
+55:    * @param {string} path
+56:    * @param {Object} params 键值对，值为 null/undefined 的会被忽略
+57:    */
+58:   function buildUrl(path, params) {
+59:     var url = BASE_URL + path;
+60:     if (!params || typeof params !== "object") return url;
+61:     var qs = [];
+62:     Object.keys(params).forEach(function (k) {
+63:       var v = params[k];
+64:       if (v === null || v === undefined || v === "") return;
+65:       qs.push(encodeURIComponent(k) + "=" + encodeURIComponent(v));
+66:     });
+67:     if (qs.length) url += (url.indexOf("?") === -1 ? "?" : "&") + qs.join("&");
+68:     return url;
+69:   }
+70: 
+71:   /**
+72:    * 解析响应体：优先 JSON，失败时返回原始文本
+73:    */
+74:   async function parseBody(response) {
+75:     if (!response.bodyUsed) {
+76:       var text = await response.text();
+77:       if (!text) return {};
+78:       try {
+79:         return JSON.parse(text);
+80:       } catch (e) {
+81:         return { _raw: text };
+82:       }
+83:     }
+84:     return {};
+85:   }
+86: 
+87:   /**
+88:    * 抽取人类可读的错误信息
+89:    */
+90:   function extractError(data, fallback) {
+91:     if (!data) return fallback;
+92:     if (typeof data === "string") return data;
+93:     if (data.message) return data.message;
+94:     if (data.error) {
+95:       return typeof data.error === "object" ? JSON.stringify(data.error) : data.error;
+96:     }
+97:     if (data.detail) return typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail);
+98:     if (data._raw) return data._raw;
+99:     return fallback;
+100:   }
+101: 
+102:   /**
+103:    * 401 时跳转登录页（带 redirect 参数方便登录后回跳）
+104:    */
+105:   function handleUnauthorized() {
+106:     API.clearToken();
+107:     var redirect = encodeURIComponent(
+108:       window.location.pathname + window.location.search
+109:     );
+110:     var authUrl = "auth.html?redirect=" + redirect;
+111:     if (window.location.pathname !== "auth.html") {
+112:       window.location.replace(authUrl);
+113:     }
+114:   }
+115: 
+116:   /* ------------------------------------------------------------------------
+117:    * 核心请求方法
+118:    * ---------------------------------------------------------------------- */
+119: 
+120:   /**
+121:    * 通用 fetch 封装
+122:    * @param {string} path 例如 '/api/posts'
+123:    * @param {Object} [opts]
+124:    * @param {'GET'|'POST'|'PUT'|'DELETE'|'PATCH'} [opts.method='GET']
+125:    * @param {Object} [opts.body]   POST/PUT 请求体（对象，将被 JSON 序列化）
+126:    * @param {Object} [opts.params] URL query 参数
+127:    * @param {boolean} [opts.auth=true] 是否携带 Bearer Token
+128:    * @param {Object} [opts.headers] 额外 headers
+129:    * @param {boolean} [opts.redirectOn401=true] 401 时是否自动跳转
+130:    * @returns {Promise<any>} 解析后的响应 JSON（或原始文本）
+131:    * @throws {Error} 网络错误 / 非 2xx 响应（错误对象带 .status / .data）
+132:    */
+133:   async function request(path, opts) {
+134:     opts = opts || {};
+135:     var method = (opts.method || "GET").toUpperCase();
+136:     var needsAuth = opts.auth !== false;
+137:     var redirectOn401 = opts.redirectOn401 !== false;
+138:     var token = API.getToken();
+139: 
+140:     var headers = Object.assign(
+141:       { Accept: "application/json" },
+142:       opts.headers || {}
+143:     );
+144: 
+145:     // 携带 Bearer Token
+146:     if (needsAuth && token) {
+147:       headers["Authorization"] = "Bearer " + token;
+148:     }
+149: 
+150:     // JSON body
+151:     var body = undefined;
+152:     if (opts.body !== undefined && opts.body !== null) {
+153:       headers["Content-Type"] = "application/json";
+154:       body = JSON.stringify(opts.body);
+155:     }
+156: 
+157:     var url = buildUrl(path, opts.params);
+158: 
+159:     var response;
+160:     var controller = new AbortController();
+161:     var timeout = setTimeout(function () {
+162:       controller.abort();
+163:     }, 15000); // 15 秒超时
+164: 
+165:     try {
+166:       response = await fetch(url, {
+167:         method: method,
+168:         headers: headers,
+169:         body: body,
+170:         credentials: "same-origin",
+171:         signal: controller.signal,
+172:       });
+173:     } catch (netErr) {
+174:       clearTimeout(timeout);
+175:       if (netErr.name === "AbortError") {
+176:         throw new Error("请求超时，请检查网络连接或后端服务是否启动");
+177:       }
+178:       var e = new Error("网络请求失败，请检查网络连接或后端服务是否启动");
+179:       e.cause = netErr;
+180:       e.network = true;
+181:       throw e;
+182:     }
+183:     clearTimeout(timeout);
+184: 
+185:     var data = await parseBody(response);
+186: 
+187:     if (response.status === 401) {
+188:       if (redirectOn401) {
+189:         handleUnauthorized();
+190:         // 抛出一个标记错误，阻止后续逻辑继续执行
+191:         var ue = new Error("登录已过期，请重新登录");
+192:         ue.status = 401;
+193:         ue.data = data;
+194:         throw ue;
+195:       }
+196:     }
+197: 
+198:     if (!response.ok) {
+199:       var msg = extractError(
+200:         data,
+201:         "请求失败（HTTP " + response.status + "）"
+202:       );
+203:       var err = new Error(msg);
+204:       err.status = response.status;
+205:       err.data = data;
+206:       throw err;
+207:     }
+208: 
+209:     return data;
+210:   }
+211: 
+212:   API.request = request;
+213: 
+214:   /* ------------------------------------------------------------------------
+215:    * 鉴权接口
+216:    * ---------------------------------------------------------------------- */
+217: 
+218:   /**
+219:    * 登录
+220:    * @param {string} username
+221:    * @param {string} password
+222:    * @returns {Promise<{token:string}>}
+223:    */
+224:   API.login = function (username, password) {
+225:     return request("/api/auth/login", {
+226:       method: "POST",
+227:       body: { username: username, password: [REDACTED:credential] },
+228:       auth: false, // 登录接口无需 Token
+229:       redirectOn401: false, // 登录接口 401 表示凭据错误，不应跳转
+230:     });
+231:   };
+232: 
+233:   /**
+234:    * 注册
+235:    * @param {string} username
+236:    * @param {string} password
+237:    */
+238:   API.register = function (username, password) {
+239:     return request("/api/auth/register", {
+240:       method: "POST",
+241:       body: { username: username, password: [REDACTED:credential] },
+242:       auth: false,
+243:       redirectOn401: false,
+244:     });
+245:   };
+246: 
+247:   /* ------------------------------------------------------------------------
+248:    * 帖子接口
+249:    * ---------------------------------------------------------------------- */
+250: 
+251:   /**
+252:    * 获取主贴列表（分页）
+253:    * @param {number} [page=1]
+254:    * @param {number} [limit=20]
+255:    * @returns {Promise<{posts:Array, total:number, page:number, limit:number, pages:number}>}
+256:    */
+257:   API.getPosts = function (page, limit) {
+258:     return request("/api/posts", {
+259:       method: "GET",
+260:       params: { page: page || 1, limit: limit || 20 },
+261:       auth: false, // 列表对游客开放
+262:     });
+263:   };
+264: 
+265:   /**
+266:    * 获取帖子详情
+267:    * @param {number|string} id
+268:    * @returns {Promise<{post:Object, replies:Array, reply_tree:Array, reply_count:number}>}
+269:    *        V3 起额外返回 reply_tree（嵌套树）与 reply_count
+270:    */
+271:   API.getPost = function (id) {
+272:     return request("/api/posts/" + encodeURIComponent(id), {
+273:       method: "GET",
+274:       auth: false,
+275:     });
+276:   };
+277: 
+278:   /**
+279:    * 发布新贴
+280:    * @param {string} title
+281:    * @param {string} content
+282:    */
+283:   API.createPost = function (title, content) {
+284:     return request("/api/posts", {
+285:       method: "POST",
+286:       body: { title: title, content: content },
+287:       auth: true,
+288:     });
+289:   };
+290: 
+291:   /**
+292:    * 发布回复（V3：支持楼中楼）
+293:    * @param {number|string} postId
+294:    * @param {string} content
+295:    * @param {number|string} [parentId] 可选；传入则作为对该回复的子回复，
+296:    *        省略或传 null 表示一级回复
+297:    * @returns {Promise<Object>} 新回复节点（含 depth/root_id/parent_id 等层级字段）
+298:    */
+299:   API.createReply = function (postId, content, parentId) {
+300:     var body = { content: content };
+301:     if (parentId !== undefined && parentId !== null && parentId !== "") {
+302:       body.parent_id = parentId;
+303:     }
+304:     return request("/api/posts/" + encodeURIComponent(postId) + "/replies", {
+305:       method: "POST",
+306:       body: body,
+307:       auth: true,
+308:     });
+309:   };
+310: 
+311:   /**
+312:    * 删除回复（V3 新增）
+313:    * 仅回复作者或管理员可调用；服务端会级联删除其所有子孙回复。
+314:    * @param {number|string} replyId
+315:    * @returns {Promise<{message:string, deleted_count:number}>}
+316:    */
+317:   API.deleteReply = function (replyId) {
+318:     return request("/api/replies/" + encodeURIComponent(replyId), {
+319:       method: "DELETE",
+320:       auth: true,
+321:     });
+322:   };
+323: 
+324:   /**
+325:    * 删除帖子
+326:    * @param {number|string} id
+327:    */
+328:   API.deletePost = function (id) {
+329:     return request("/api/posts/" + encodeURIComponent(id), {
+330:       method: "DELETE",
+331:       auth: true,
+332:     });
+333:   };
+334: 
+335:   /* ------------------------------------------------------------------------
+336:    * 时间格式化（友好格式）
+337:    * @param {string|number|Date} input
+338:    * @returns {string} 例如 "3天前" / "刚刚" / "2024-01-01 12:00"
+339:    */
+340:   /**
+341:    * 将任意输入转为 Date 对象（兼容字符串、时间戳、Date）
+342:    */
+343:   API._toDate = function (input) {
+344:     if (!input) return null;
+345:     if (input instanceof Date) return input;
+346:     if (typeof input === "number") return new Date(input);
+347:     var s = String(input).replace(" ", "T");
+348:     var date = new Date(s);
+349:     if (isNaN(date.getTime())) date = new Date(String(input));
+350:     return isNaN(date.getTime()) ? null : date;
+351:   };
+352: 
+353:   API.formatTime = function (input) {
+354:     if (!input) return "";
+355:     var date = API._toDate(input);
+356:     if (!date) return String(input);
+357: 
+358:     var now = Date.now();
+359:     var diff = Math.floor((now - date.getTime()) / 1000);
+360: 
+361:     if (diff < 0) {
+362:       // 未来时间，直接显示
+363:       return API._formatDateTime(date);
+364:     }
+365: 
+366:     var sec = 60;
+367:     var min = 60;
+368:     var hour = 24;
+369:     var day = 30;
+370: 
+371:     if (diff < 10) return "刚刚";
+372:     if (diff < 60) return diff + "秒前";
+373:     if (diff < 60 * min) return Math.floor(diff / 60) + "分钟前";
+374:     if (diff < 60 * 60 * hour) return Math.floor(diff / (60 * 60)) + "小时前";
+375:     if (diff < 60 * 60 * 24 * 7) return Math.floor(diff / (60 * 60 * 24)) + "天前";
+376:     if (diff < 60 * 60 * 24 * day) {
+377:       var weeks = Math.floor(diff / (60 * 60 * 24 * 7));
+378:       return weeks + "周前";
+379:     }
+380:     return API._formatDateTime(date);
+381:   };
+382: 
+383:   API._formatDateTime = function (date) {
+384:     function pad(n) {
+385:       return n < 10 ? "0" + n : "" + n;
+386:     }
+387:     return (
+388:       date.getFullYear() +
+389:       "-" +
+390:       pad(date.getMonth() + 1) +
+391:       "-" +
+392:       pad(date.getDate()) +
+393:       " " +
+394:       pad(date.getHours()) +
+395:       ":" +
+396:       pad(date.getMinutes())
+397:     );
+398:   };
+399: 
+400:   /**
+401:    * 获取完整日期时间字符串（用于 tooltip / 详情）
+402:    */
+403:   API.formatDateTime = function (input) {
+404:     var date = API._toDate(input);
+405:     if (!date) return String(input);
+406:     return API._formatDateTime(date);
+407:   };
+408: 
+409:   /* ------------------------------------------------------------------------
+410:    * XSS 防护
+411:    *
+412:    * 采用白名单方式清洗标记语言生成后的 HTML：
+413:    * - 移除危险标签：script/style/iframe/object/embed/form/link/meta/base
+414:    * - 移除危险属性：on*（事件）、style（含不安全 CSS）、formaction、srcdoc
+415:    * - 校验 href/src 协议：仅允许 http(s)/mailto/tel/#/相对路径
+416:    * - 保留 markdown 常用标签
+417:    * ---------------------------------------------------------------------- */
+418: 
+419:   var ALLOWED_TAGS = {
+420:     p: 1, br: 1, hr: 1,
+421:     h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1,
+422:     ul: 1, ol: 1, li: 1,
+423:     blockquote: 1,
+424:     code: 1, pre: 1,
+425:     a: 1,
+426:     em: 1, i: 1, strong: 1, b: 1,
+427:     del: 1, ins: 1, s: 1, strike: 1,
+428:     sup: 1, sub: 1,
+429:     table: 1, thead: 1, tbody: 1, tfoot: 1, tr: 1, th: 1, td: 1,
+430:     span: 1,
+431:     img: 1,
+432:     u: 1,
+433:   };
+434: 
+435:   var ALLOWED_ATTRS = {
+436:     a: ["href", "title", "target", "rel"],
+437:     img: ["src", "alt", "title"],
+438:     code: ["class"],
+439:     span: ["class"],
+440:     td: ["align"],
+441:     th: ["align"],
+442:   };
+443: 
+444:   var SAFE_PROTOCOLS = ["http:", "https:", "mailto:", "tel:", "#"];
+445: 
+446:   /**
+447:    * 校验 URL 是否安全（阻止 javascript: / data: 等危险协议）
+448:    */
+449:   function isSafeUrl(url) {
+450:     if (!url) return false;
+451:     var u = url.trim().toLowerCase();
+452:     // 阻止控制字符
+453:     if (/[\u0000-\u001f\u007f]/.test(u)) return false;
+454:     // 阻止 javascript: data: vbscript: 等
+455:     if (/^(javascript|data|vbscript|file):/i.test(u)) return false;
+456:     // 允许相对路径与锚点
+457:     if (u.charAt(0) === "/" || u.charAt(0) === "." || u.charAt(0) === "#" || u.charAt(0) === "?") {
+458:       return true;
+459:     }
+460:     // 必须以受信任协议开头
+461:     for (var i = 0; i < SAFE_PROTOCOLS.length; i++) {
+462:       if (u.indexOf(SAFE_PROTOCOLS[i]) === 0) return true;
+463:     }
+464:     return false;
+465:   }
+466: 
+467:   /**
+468:    * 解析属性字符串，过滤危险属性
+469:    * @param {string} attrString
+470:    * @param {string} tagName
+471:    * @returns {string}
+472:    */
+473:   function filterAttrs(attrString, tagName) {
+474:     if (!attrString) return "";
+475:     var allowed = ALLOWED_ATTRS[tagName] || [];
+476:     var result = [];
+477:     var regex = /([a-zA-Z_:][\w:.-]*)\s*(?:=\s*("([^"]*)"|'([^']*)'|[^\s"'>]+))?/g;
+478:     var m;
+479:     while ((m = regex.exec(attrString)) !== null) {
+480:       var name = m[1].toLowerCase();
+481:       var value = m[3] !== undefined
+482:         ? m[3]
+483:         : m[4] !== undefined
+484:           ? m[4]
+485:           : m[5] !== undefined
+486:             ? m[5]
+487:             : "";
+488: 
+489:       // 跳过危险属性
+490:       if (name.indexOf("on") === 0) continue;
+491:       if (name === "style") continue;
+492:       if (name === "formaction" || name === "srcdoc" || name === "xlink:href") continue;
+493:       if (allowed.indexOf(name) === -1) continue;
+494: 
+495:       // 对 URL 属性做协议校验
+496:       if (name === "href" || name === "src") {
+497:         if (!isSafeUrl(value)) continue;
+498:       }
+499: 
+500:       result.push(name + '="' + escapeAttr(value) + '"');
+501:     }
+502:     return result.join(" ");
+503:   }
+504: 
+505:   function escapeAttr(v) {
+506:     return String(v)
+507:       .replace(/&/g, "&amp;")
+508:       .replace(/"/g, "&quot;")
+509:       .replace(/</g, "&lt;")
+510:       .replace(/>/g, "&gt;");
+511:   }
+512: 
+513:   /**
+514:    * 清洗 HTML：白名单标签 + 过滤危险属性 + 阻止危险协议
+515:    * @param {string} html
+516:    * @returns {string}
+517:    */
+518:   API.sanitize = function (html) {
+519:     if (!html) return "";
+520:     try {
+521:       return sanitizeInner(html);
+522:     } catch (e) {
+523:       // 兜底：DOM 清洗异常时降级为纯文本转义，保证页面不白屏
+524:       console.warn("[sanitize] fallback to plain text:", e && e.message);
+525:       return String(html)
+526:         .replace(/&/g, "&amp;")
+527:         .replace(/</g, "&lt;")
+528:         .replace(/>/g, "&gt;")
+529:         .replace(/"/g, "&quot;");
+530:     }
+531:   };
+532: 
+533:   function sanitizeInner(html) {
+534:     // 移除隐藏 HTML 注释（防止条件注释攻击等）
+535:     html = html.replace(/<!--[\s\S]*?-->/g, "");
+536:     // 移除 <?...?> 处理指令
+537:     html = html.replace(/<\?[\s\S]*?\?>/g, "");
+538: 
+539:     var doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
+540:     var body = doc.body;
+541: 
+542:     // 先收集所有元素节点（避免遍历中修改树导致迭代状态错乱）。
+543:     // 注意：body 属于 DOMParser 解析出的独立 document，
+544:     // 不能用主文档的 Range.createNodeIterator 跨文档遍历，
+545:     // 这里改用纯 DOM 递归遍历，兼容性最好。
+546:     var allElements = [];
+547:     (function collect(node) {
+548:       var child = node.firstChild;
+549:       while (child) {
+550:         if (child.nodeType === 1) {
+551:           allElements.push(child);
+552:           collect(child);
+553:         }
+554:         child = child.nextSibling;
+555:       }
+556:     })(body);
+557: 
+558:     var DANGEROUS_TAGS = ["script", "style", "iframe", "object", "embed", "link", "meta", "base", "form", "input", "button", "select", "textarea"];
+559: 
+560:     allElements.forEach(function (node) {
+561:       // 节点可能已被父节点替换/移除，跳过
+562:       if (!node.parentNode) return;
+563: 
+564:       var tag = node.tagName.toLowerCase();
+565:       if (!ALLOWED_TAGS[tag]) {
+566:         if (DANGEROUS_TAGS.indexOf(tag) !== -1) {
+567:           // 危险标签：整体删除（含子节点）
+568:           node.parentNode.removeChild(node);
+569:         } else {
+570:           // 非危险标签：解包，保留文本内容
+571:           // 用 body 所属文档创建片段，避免跨文档 Fragment 兼容性问题
+572:           var frag = body.ownerDocument.createDocumentFragment();
+573:           var child = node.firstChild;
+574:           while (child) {
+575:             frag.appendChild(child);
+576:             child = node.firstChild;
+577:           }
+578:           node.parentNode.replaceChild(frag, node);
+579:         }
+580:         return;
+581:       }
+582: 
+583:       // 对白名单标签做属性过滤
+584:       var tagLower = tag;
+585:       var allowed = ALLOWED_ATTRS[tagLower] || [];
+586:       // 先读取属性，再逐个移除/重建
+587:       var existing = [];
+588:       for (var i = 0; i < node.attributes.length; i++) {
+589:         var attrName = node.attributes[i].name;
+590:         var attrVal = node.attributes[i].value;
+591:         existing.push({ name: attrName, value: attrVal });
+592:       }
+593:       // 清空属性
+594:       while (node.attributes.length) {
+595:         node.removeAttribute(node.attributes[0].name);
+596:       }
+597:       // 重建安全属性
+598:       existing.forEach(function (attr) {
+599:         var name = attr.name.toLowerCase();
+600:         var val = attr.value;
+601:         if (name.indexOf("on") === 0) return;
+602:         if (name === "style" || name === "formaction" || name === "srcdoc" || name === "xlink:href") return;
+603:         if (allowed.indexOf(name) === -1) return;
+604:         if ((name === "href" || name === "src") && !isSafeUrl(val)) return;
+605:         try {
+606:           node.setAttribute(name, val);
+607:         } catch (e) { /* ignore */ }
+608:       });
+609: 
+610:       // a 标签统一加 rel="noopener" 防反向 tabnabbing
+611:       if (tag === "a") {
+612:         node.setAttribute("rel", "noopener noreferrer");
+613:         if (!node.getAttribute("target")) node.setAttribute("target", "_blank");
+614:       }
+615:     });
+616: 
+617:     return body.innerHTML;
+618:   }
+619: 
+620:   /* ------------------------------------------------------------------------
+621:    * DOM 工具
+622:    * ---------------------------------------------------------------------- */
+623: 
+624:   /**
+625:    * 创建元素
+626:    * @param {string} tag
+627:    * @param {Object} [props] 例如 {class:'btn', text:'hi', attrs:{href:'#'}}
+628:    * @param {Array|Node|string} [children]
+629:    */
+630:   API.el = function (tag, props, children) {
+631:     var node = document.createElement(tag);
+632:     props = props || {};
+633:     if (props.class) node.className = props.class;
+634:     if (props.id) node.id = props.id;
+635:     if (props.text !== undefined) node.textContent = props.text;
+636:     if (props.attrs) {
+637:       Object.keys(props.attrs).forEach(function (k) {
+638:         node.setAttribute(k, props.attrs[k]);
+639:       });
+640:     }
+641:     if (props.dataset) {
+642:       Object.keys(props.dataset).forEach(function (k) {
+643:         node.dataset[k] = props.dataset[k];
+644:       });
+645:     }
+646:     if (children) {
+647:       var list = Array.isArray(children) ? children : [children];
+648:       list.forEach(function (c) {
+649:         if (c == null) return;
+650:         if (typeof c === "string" || typeof c === "number") {
+651:           node.appendChild(document.createTextNode(String(c)));
+652:         } else {
+653:           node.appendChild(c);
+654:         }
+655:       });
+656:     }
+657:     return node;
+658:   };
+659: 
+660:   /**
+661:    * 文本摘要：去掉 Markdown 标记后截取前 N 字
+662:    */
+663:   API.excerpt = function (text, max) {
+664:     if (!text) return "";
+665:     max = max || 100;
+666:     var plain = String(text)
+667:       .replace(/```[\s\S]*?```/g, " ")          // 代码块
+668:       .replace(/`([^`]+)`/g, "$1")              // 行内代码
+669:       .replace(/!\[([^\]]*)\]\([^)]*\)/g, " ") // 图片
+670:       .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // 链接
+671:       .replace(/[#*_~>]/g, "")                  // 标记符号
+672:       .replace(/\s+/g, " ")
+673:       .trim();
+674:     if (plain.length <= max) return plain;
+675:     return plain.slice(0, max) + "…";
+676:   };
+677: 
+678:   /**
+679:    * 头像字母：取用户名首字母（中文取首字）
+680:    * 如果本地缓存有头像 URL，优先返回图片标记
+681:    */
+682:   API.avatarChar = function (name) {
+683:     if (!name) return "?";
+684:     var s = String(name).trim();
+685:     if (!s) return "?";
+686:     // 中文/日文/韩文取首字符；英文取首字母
+687:     var c = s.charAt(0);
+688:     return /[一-龥぀-ゟ゠-ヿ가-힯]/.test(c) ? c : c.toUpperCase();
+689:   };
+690: 
+691:   /* ------------------------------------------------------------------------
+692:    * 用户中心接口（V2）
+693:    * ---------------------------------------------------------------------- */
+694: 
+695:   /**
+696:    * 获取当前用户资料
+697:    * @returns {Promise<{id,username,nickname,bio,avatar_url,role,created_at}>}
+698:    */
+699:   API.getProfile = function () {
+700:     return request("/api/user/profile", {
+701:       method: "GET",
+702:       auth: true,
+703:     });
+704:   };
+705: 
+706:   /**
+707:    * 更新昵称与简介
+708:    * @param {Object} data  {nickname, bio}
+709:    */
+710:   API.updateProfile = function (data) {
+711:     return request("/api/user/profile", {
+712:       method: "PUT",
+713:       body: data,
+714:       auth: true,
+715:     });
+716:   };
+717: 
+718:   /**
+719:    * 修改密码
+720:    * @param {string} oldPassword
+721:    * @param {string} newPassword
+722:    */
+723:   API.changePassword = [REDACTED:credential] (oldPassword, newPassword) {
+724:     return request("/api/user/password", {
+725:       method: "POST",
+726:       body: { old_password: [REDACTED:credential], new_password: [REDACTED:credential] },
+727:       auth: true,
+728:     });
+729:   };
+730: 
+731:   /**
+732:    * 上传头像
+733:    * @param {File} file 图片文件对象
+734:    */
+735:   API.uploadAvatar = function (file) {
+736:     var token = API.getToken();
+737:     var formData = new FormData();
+738:     formData.append("file", file);
+739: 
+740:     var url = buildUrl("/api/user/avatar");
+741:     var controller = new AbortController();
+742:     var timeout = setTimeout(function () { controller.abort(); }, 30000);
+743: 
+744:     return fetch(url, {
+745:       method: "POST",
+746:       headers: token ? { "Authorization": "Bearer " + token } : {},
+747:       body: formData,
+748:       credentials: "same-origin",
+749:       signal: controller.signal,
+750:     }).then(function (response) {
+751:       clearTimeout(timeout);
+752:       var ct = response.headers.get("Content-Type") || "";
+753:       var isJson = ct.indexOf("application/json") !== -1;
+754:       return response.text().then(function (text) {
+755:         var data;
+756:         try { data = isJson ? JSON.parse(text) : { _raw: text }; }
+757:         catch (e) { data = { _raw: text }; }
+758: 
+759:         if (response.status === 401) {
+760:           handleUnauthorized();
+761:           var ue = new Error("登录已过期，请重新登录");
+762:           ue.status = 401;
+763:           ue.data = data;
+764:           throw ue;
+765:         }
+766: 
+767:         if (!response.ok) {
+768:           var msg = extractError(data, "请求失败（HTTP " + response.status + "）");
+769:           var err = new Error(msg);
+770:           err.status = response.status;
+771:           err.data = data;
+772:           throw err;
+773:         }
+774: 
+775:         return data;
+776:       });
+777:     }).catch(function (err) {
+778:       if (err && err.name === "AbortError") {
+779:         throw new Error("请求超时，请检查网络连接或后端服务是否启动");
+780:       }
+781:       throw err;
+782:     });
+783:   };
+784: 
+785:   /* ------------------------------------------------------------------------
+786:    * 暴露到全局
+787:    * ---------------------------------------------------------------------- */
+788:   global.ForumAPI = API;
+789:   // 同时挂载到 window 便于旧代码访问
+790:   if (typeof window !== "undefined") {
+791:     window.ForumAPI = API;
+792:   }
+793: })(typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : this));
+
+(End of file - total 793 lines)
+</content>

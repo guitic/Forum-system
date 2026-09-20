@@ -1,0 +1,208 @@
+<path>D:\桌面\deep\Forum system\frontend\profile.html</path>
+<type>file</type>
+<content>
+1: <!DOCTYPE html>
+2: <html lang="zh-CN">
+3: <head>
+4:   <meta charset="UTF-8" />
+5:   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+6:   <meta http-equiv="Pragma" content="no-cache" />
+7:   <meta http-equiv="Expires" content="0" />
+8:   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+9:   <meta name="description" content="用户中心 - 技术交流论坛" />
+10:   <title>用户中心 - 技术论坛</title>
+11:   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
+12:   <link rel="stylesheet" href="css/style.css?v=4" />
+13: </head>
+14: <body>
+15:   <div class="app">
+16:     <!-- ==================== Header ==================== -->
+17:     <header class="header">
+18:       <div class="container header-inner">
+19:         <a href="index.html" class="logo">
+20:           <span class="logo-mark">T</span>
+21:           <span>技术论坛</span>
+22:         </a>
+23:         <div class="nav-actions" id="nav-actions">
+24:           <!-- 由 profile.js 动态渲染 -->
+25:         </div>
+26:       </div>
+27:     </header>
+28: 
+29:     <!-- ==================== Main ==================== -->
+30:     <main>
+31:       <div class="container">
+32:         <!-- 加载中 -->
+33:         <div id="profile-loading" class="loading" style="padding:80px 20px">正在加载资料…</div>
+34: 
+35:         <!-- 个人资料 -->
+36:         <div id="profile-wrapper" class="hidden">
+37:           <!-- 用户信息卡片 -->
+38:           <div class="profile-header card">
+39:             <div class="profile-avatar-section">
+40:               <!-- 头像预览 -->
+41:               <div class="profile-avatar-wrap">
+42:                 <div id="profile-avatar" class="profile-avatar"></div>
+43:                 <label for="avatar-upload-input" class="profile-avatar-upload-btn" title="更换头像">
+44:                   <span class="upload-icon">📷</span>
+45:                   <span class="upload-text">更换头像</span>
+46:                 </label>
+47:                 <input type="file" id="avatar-upload-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" />
+48:               </div>
+49:               <div class="profile-avatar-info">
+50:                 <div id="profile-avatar-url" class="avatar-url-info hidden"></div>
+51:                 <div class="avatar-hint">支持 JPG / PNG / WebP / GIF，最大 2MB</div>
+52:               </div>
+53:             </div>
+54: 
+55:             <div class="profile-info-section">
+56:               <h1 id="profile-display-name" class="profile-name"></h1>
+57:               <div class="profile-meta">
+58:                 <div class="profile-meta-row">
+59:                   <span class="profile-meta-label">用户名</span>
+60:                   <span id="profile-username" class="profile-meta-value"></span>
+61:                 </div>
+62:                 <div class="profile-meta-row">
+63:                   <span class="profile-meta-label">角色</span>
+64:                   <span id="profile-role" class="profile-meta-value"></span>
+65:                 </div>
+66:                 <div class="profile-meta-row">
+67:                   <span class="profile-meta-label">注册时间</span>
+68:                   <span id="profile-created-at" class="profile-meta-value"></span>
+69:                 </div>
+70:               </div>
+71:             </div>
+72:           </div>
+73: 
+74:           <!-- 资料编辑区域 -->
+75:           <div class="profile-edit-section">
+76:             <!-- 昵称与简介 -->
+77:             <div class="profile-edit-card card">
+78:               <h2 class="edit-section-title">个人信息</h2>
+79: 
+80:               <div class="form-group" id="nickname-group">
+81:                 <label class="form-label" for="nickname-input">昵称</label>
+82:                 <input
+83:                   type="text"
+84:                   id="nickname-input"
+85:                   class="form-control"
+86:                   placeholder="设置一个友好的昵称（最多 50 字符）"
+87:                   maxlength="50"
+88:                 />
+89:                 <div class="form-hint" id="nickname-hint">昵称会显示在帖子和回复中</div>
+90:                 <div class="form-error"></div>
+91:               </div>
+92: 
+93:               <div class="form-group" id="bio-group">
+94:                 <label class="form-label" for="bio-input">个人简介</label>
+95:                 <textarea
+96:                   id="bio-input"
+97:                   class="form-control"
+98:                   placeholder="介绍一下你自己（最多 200 字符）"
+99:                   maxlength="200"
+100:                   rows="4"
+101:                 ></textarea>
+102:                 <div class="form-hint">
+103:                   <span id="bio-char-count">0</span> / 200
+104:                 </div>
+105:                 <div class="form-error"></div>
+106:               </div>
+107: 
+108:               <div class="edit-actions">
+109:                 <button id="save-profile-btn" class="btn btn-primary">保存资料</button>
+110:               </div>
+111:             </div>
+112: 
+113:             <!-- 修改密码 -->
+114:             <div class="profile-edit-card card">
+115:               <h2 class="edit-section-title">修改密码</h2>
+116: 
+117:               <div class="form-group" id="old-password-group">
+118:                 <label class="form-label" for="old-password-input">
+119:                   当前密码 <span class="required">*</span>
+120:                 </label>
+121:                 <div class="password-input-wrap">
+122:                   <input
+123:                     type="password"
+124:                     id="old-password-input"
+125:                     class="form-control"
+126:                     placeholder="请输入当前密码"
+127:                     autocomplete="current-password"
+128:                   />
+129:                   <button type="button" class="password-toggle" data-target="old-password-input" title="显示/隐藏">👁</button>
+130:                 </div>
+131:                 <div class="form-error"></div>
+132:               </div>
+133: 
+134:               <div class="form-group" id="new-password-group">
+135:                 <label class="form-label" for="new-password-input">
+136:                   新密码 <span class="required">*</span>
+137:                 </label>
+138:                 <div class="password-input-wrap">
+139:                   <input
+140:                     type="password"
+141:                     id="new-password-input"
+142:                     class="form-control"
+143:                     placeholder="至少 8 位，需含字母、数字和特殊字符"
+144:                     autocomplete="new-password"
+145:                   />
+146:                   <button type="button" class="password-toggle" data-target="new-password-input" title="显示/隐藏">👁</button>
+147:                 </div>
+148:                 <div class="password-strength" id="password-strength">
+149:                   <div class="strength-bar"></div>
+150:                   <span class="strength-text"></span>
+151:                 </div>
+152:                 <div class="form-hint">
+153:                   密码要求：至少 8 位，包含字母、数字和特殊字符
+154:                 </div>
+155:                 <div class="form-error"></div>
+156:               </div>
+157: 
+158:               <div class="form-group" id="confirm-password-group">
+159:                 <label class="form-label" for="confirm-password-input">
+160:                   确认新密码 <span class="required">*</span>
+161:                 </label>
+162:                 <div class="password-input-wrap">
+163:                   <input
+164:                     type="password"
+165:                     id="confirm-password-input"
+166:                     class="form-control"
+167:                     placeholder="再次输入新密码"
+168:                     autocomplete="new-password"
+169:                   />
+170:                   <button type="button" class="password-toggle" data-target="confirm-password-input" title="显示/隐藏">👁</button>
+171:                 </div>
+172:                 <div class="form-error"></div>
+173:               </div>
+174: 
+175:               <div class="edit-actions">
+176:                 <button id="change-password-btn" class="btn btn-primary">修改密码</button>
+177:               </div>
+178:             </div>
+179:           </div>
+180:         </div>
+181: 
+182:         <!-- 错误提示 -->
+183:         <div id="profile-error" class="empty-state hidden"></div>
+184:       </div>
+185:     </main>
+186: 
+187:     <!-- ==================== Footer ==================== -->
+188:     <footer class="footer">
+189:       <div class="container">
+190:         <span>技术交流论坛 · 纯 HTML + JS 实现</span>
+191:       </div>
+192:     </footer>
+193:   </div>
+194: 
+195:   <!-- ==================== Toast ==================== -->
+196:   <div id="toast-container" class="toast-container"></div>
+197: 
+198:   <!-- ==================== Scripts ==================== -->
+199:   <script src="js/api.js?v=5"></script>
+200:   <script src="js/profile.js?v=2"></script>
+201: </body>
+202: </html>
+
+(End of file - total 202 lines)
+</content>
