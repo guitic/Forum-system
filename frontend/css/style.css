@@ -1531,3 +1531,592 @@ textarea.form-control.md-editor {
     display: none;
   }
 }
+
+/* ==========================================================================
+   V2 用户中心样式
+   ========================================================================== */
+
+/* ---------- 头像通用样式 ---------- */
+.avatar-img-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--color-primary-soft);
+  flex-shrink: 0;
+}
+
+.avatar-img-wrap.avatar {
+  width: 28px;
+  height: 28px;
+}
+
+.avatar-img-wrap.avatar-lg {
+  width: 48px;
+  height: 48px;
+}
+
+.avatar-img-wrap.avatar-lg-img {
+  width: 48px;
+  height: 48px;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+/* 帖子列表头像 */
+.post-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: var(--color-primary);
+  font-size: 16px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.post-avatar-img-wrap {
+  background: transparent;
+}
+
+/* 回复头像 */
+.reply-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: var(--color-primary);
+  font-size: 16px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.reply-avatar-img-wrap {
+  background: transparent;
+}
+
+/* ---------- 用户中心页面 ---------- */
+.profile-header {
+  display: flex;
+  gap: 32px;
+  align-items: center;
+  padding: 32px;
+  margin-bottom: 24px;
+}
+
+.profile-avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-avatar-wrap {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.profile-avatar {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: var(--color-primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 48px;
+  font-weight: 700;
+  color: var(--color-primary);
+  overflow: hidden;
+  border: 3px solid var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.profile-avatar.avatar-img-wrap {
+  background: var(--color-bg);
+}
+
+.profile-avatar.avatar-letter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatar-lg-img {
+  width: 120px;
+  height: 120px;
+}
+
+.profile-avatar-upload-btn {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: var(--transition);
+  font-size: 16px;
+  border: 2px solid var(--color-surface);
+}
+
+.profile-avatar-upload-btn:hover {
+  background: var(--color-primary-dark);
+  transform: scale(1.1);
+}
+
+.profile-avatar-upload-btn .upload-icon {
+  line-height: 1;
+}
+
+.profile-avatar-upload-btn .upload-text {
+  display: none;
+}
+
+.profile-avatar-info {
+  text-align: center;
+}
+
+.avatar-url-info {
+  font-size: 12px;
+  color: var(--color-text-light);
+  word-break: break-all;
+  max-width: 140px;
+  margin-top: 4px;
+}
+
+.avatar-hint {
+  font-size: 12px;
+  color: var(--color-text-light);
+}
+
+.profile-info-section {
+  flex: 1;
+}
+
+.profile-name {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin-bottom: 16px;
+}
+
+.profile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.profile-meta-label {
+  color: var(--color-text-muted);
+  min-width: 80px;
+}
+
+.profile-meta-value {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+/* ---------- 资料编辑卡片 ---------- */
+.profile-edit-section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.profile-edit-card {
+  padding: 24px;
+}
+
+.edit-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.edit-actions {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ---------- 密码输入框 ---------- */
+.password-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-input-wrap .form-control {
+  padding-right: 48px;
+  flex: 1;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--color-text-light);
+  padding: 4px 8px;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+}
+
+.password-toggle:hover {
+  color: var(--color-text-muted);
+}
+
+/* ---------- 密码强度条 ---------- */
+.password-strength {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.strength-bar {
+  height: 4px;
+  width: 0;
+  border-radius: 2px;
+  background: var(--color-border);
+  transition: width 0.3s ease, background 0.3s ease;
+  flex: 1;
+}
+
+.strength-text {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 768px) {
+  .profile-header {
+    flex-direction: column;
+    text-align: center;
+    padding: 24px;
+    gap: 20px;
+  }
+
+  .profile-info-section {
+    text-align: center;
+  }
+
+  .profile-meta {
+    align-items: center;
+  }
+
+  .profile-meta-row {
+    justify-content: center;
+  }
+
+  .profile-avatar {
+    width: 100px;
+    height: 100px;
+    font-size: 40px;
+  }
+
+  .profile-avatar-wrap {
+    width: 100px;
+    height: 100px;
+  }
+
+  .avatar-lg-img {
+    width: 100px;
+    height: 100px;
+  }
+}
+
+/* ==========================================================================
+   V3 回复层级（楼中楼）样式
+   ========================================================================== */
+
+/* ---------- 角色徽标 ---------- */
+.tag-op {
+  display: inline-block;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--color-success-soft);
+  color: #047857;
+  border-radius: 4px;
+  line-height: 1.5;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* ---------- 头像配色：楼主 = 绿，管理员 = 琥珀 ---------- */
+.avatar.avatar-op {
+  background: linear-gradient(135deg, #34d399, #059669);
+}
+
+.avatar.avatar-admin {
+  background: linear-gradient(135deg, #fbbf24, #d97706);
+}
+
+.avatar-lg.avatar-op {
+  background: linear-gradient(135deg, #34d399, #059669);
+}
+
+.avatar-lg.avatar-admin {
+  background: linear-gradient(135deg, #fbbf24, #d97706);
+}
+
+.reply-avatar.avatar-op {
+  background: linear-gradient(135deg, #34d399, #059669);
+}
+
+.reply-avatar.avatar-admin {
+  background: linear-gradient(135deg, #fbbf24, #d97706);
+}
+
+/* 头像图片时，导航栏徽标保持 22px（避免被 .avatar-img-wrap.avatar 放大） */
+.user-badge .avatar-img-wrap.avatar {
+  width: 22px;
+  height: 22px;
+}
+
+/* ---------- 主贴卡片：楼主标识（主色左边框） ---------- */
+.post-detail.post-op {
+  border-left: 3px solid var(--color-primary);
+}
+
+/* ---------- 回复卡片：楼主 / 管理员 左边框 ---------- */
+.reply-item.reply-admin {
+  border-left: 3px solid var(--color-warning);
+}
+
+.reply-item.reply-op {
+  border-left: 3px solid var(--color-primary);
+  background: linear-gradient(
+    90deg,
+    var(--color-primary-soft) 0%,
+    var(--color-surface) 34%
+  );
+}
+
+/* ---------- 楼层号 ---------- */
+.reply-floor {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-light);
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0 5px;
+  line-height: 1.6;
+}
+
+/* ---------- 被回复人引用条 ---------- */
+.reply-quote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border);
+  border-left: 2px solid var(--color-primary-light);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+}
+
+.reply-quote-label {
+  color: var(--color-text-light);
+}
+
+.reply-quote-target {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* ---------- 回复操作栏 ---------- */
+.reply-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.reply-action-btn {
+  padding: 3px 10px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-text-light);
+  border-radius: var(--radius-sm);
+  line-height: 1.5;
+}
+
+.reply-action-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-color: var(--color-border);
+}
+
+.reply-action-delete:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-color: #fecaca;
+}
+
+/* ---------- 嵌套子回复：缩进 + 引导线 ---------- */
+.reply-children {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  /* 20px ≈ 父级头像(40px)中心，让引导线穿过父级头像中线 */
+  margin-left: 19px;
+  padding-left: 16px;
+  border-left: 2px solid var(--color-border);
+}
+
+.reply-item.reply-nested {
+  padding: 10px 14px;
+}
+
+.reply-item.reply-nested .reply-content {
+  font-size: 14px;
+}
+
+/* 第三层进一步压缩，避免过深 */
+.reply-item.reply-deep .reply-content {
+  font-size: 13.5px;
+}
+
+/* ---------- 内联回复表单 ---------- */
+.inline-reply-form {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
+.inline-reply-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.inline-reply-label {
+  color: var(--color-text-light);
+}
+
+.inline-reply-target {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.inline-reply-close {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-light);
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.inline-reply-close:hover {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+.inline-reply-textarea {
+  min-height: 78px;
+  font-size: 13.5px;
+}
+
+.inline-reply-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.inline-reply-hint {
+  font-size: 12px;
+  color: var(--color-text-light);
+}
+
+/* ---------- 回复区标题补充说明 ---------- */
+.replies-title .hint {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--color-text-light);
+}
+
+/* ---------- V3 响应式 ---------- */
+@media (max-width: 640px) {
+  .reply-children {
+    margin-left: 11px;   /* 小屏头像缩到 28px 左右 */
+    padding-left: 10px;
+  }
+
+  .reply-item.reply-nested {
+    padding: 10px 12px;
+  }
+
+  .reply-quote {
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+
+  .reply-action-btn {
+    padding: 3px 8px;
+    font-size: 12px;
+  }
+}

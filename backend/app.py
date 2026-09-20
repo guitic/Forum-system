@@ -39,8 +39,12 @@ def create_app(config_obj=None):
     # 注册蓝图
     from routes.auth import auth_bp
     from routes.posts import posts_bp
+    from routes.replies import replies_bp
+    from routes.user import user_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(posts_bp)
+    app.register_blueprint(replies_bp)
+    app.register_blueprint(user_bp)
 
     # ---------- 统一错误处理 ----------
 
@@ -111,6 +115,24 @@ def create_app(config_obj=None):
         except Exception as exc:
             db_status = f"error: {str(exc)}"
         return jsonify({"status": "ok", "database": db_status}), 200
+
+    # ---------- 头像静态资源服务（V2 新增） ----------
+
+    @app.route("/uploads/<path:filename>", methods=["GET"])
+    def serve_uploads(filename):
+        """提供上传文件（头像等）的静态资源服务。"""
+        upload_dir = os.path.join(config.UPLOAD_DIR)
+        # 安全校验：防止目录遍历
+        safe_filename = filename.replace("..", "")
+        full_path = os.path.join(upload_dir, safe_filename)
+        # 确保文件在上传目录内
+        real_upload_dir = os.path.realpath(upload_dir)
+        real_file_path = os.path.realpath(full_path)
+        if not real_file_path.startswith(real_upload_dir):
+            return jsonify({"error": "访问被拒绝"}), 403
+        if not os.path.isfile(full_path):
+            return jsonify({"error": "文件不存在"}), 404
+        return send_from_directory(upload_dir, safe_filename)
 
     return app
 

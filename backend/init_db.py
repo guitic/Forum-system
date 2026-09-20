@@ -21,6 +21,9 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import bcrypt
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import text
+
 from config import config
 from app import app
 from models import User, db
@@ -30,6 +33,58 @@ def _hash_password(plaintext: str) -> str:
     """使用 bcrypt 哈希密码。"""
     raw = plaintext.encode("utf-8")[:72]
     return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("utf-8")
+
+
+def ensure_reply_hierarchy_columns(verbose: bool = True) -> list:
+    """幂等地为存量 replies 表补充 V3 层级字段与索引。
+
+    本地 SQLite 开发库不会因 db.create_all() 自动加列（create_all 只建不存在的表，
+    不修改已有表结构），因此在初始化时做一次结构巡检并补齐。
+    MySQL/MariaDB 生产环境也可重复执行此函数，或直接跑 database/migration_v3.sql。
+
+    返回本次实际补充的列名与索引名列表（空列表表示结构已是最新）。
+    """
+    added = []
+
+    with app.app_context():
+        inspector = sa_inspect(db.engine)
+        if not inspector.has_table("replies"):
+            return added
+
+        existing_cols = {c["name"] for c in inspector.get_columns("replies")}
+
+        # 1) 补列（SQLite / MySQL / MariaDB 均支持普通 ALTER TABLE ADD COLUMN）
+        with db.engine.begin() as conn:
+            if "parent_id" not in existing_cols:
+                conn.execute(text(
+                    "ALTER TABLE replies ADD COLUMN parent_id INTEGER"
+                ))
+                added.append("column:parent_id")
+            if "root_id" not in existing_cols:
+                conn.execute(text(
+                    "ALTER TABLE replies ADD COLUMN root_id INTEGER"
+                ))
+                added.append("column:root_id")
+
+        # 2) 补索引（已存在或方言不支持时静默跳过，不阻断初始化）
+        existing_idx = {i["name"] for i in inspector.get_indexes("replies")}
+        for idx_name, col in (
+            ("idx_reply_parent", "parent_id"),
+            ("idx_reply_root", "root_id"),
+        ):
+            if idx_name in existing_idx:
+                continue
+            try:
+                with db.engine.begin() as conn:
+                    conn.execute(text(
+                        f"CREATE INDEX {idx_name} ON replies ({col})"
+                    ))
+                added.append(f"index:{idx_name}")
+            except Exception as exc:  # noqa: BLE001
+                if verbose:
+                    print(f"[init_db] 索引 {idx_name} 创建失败（可忽略）: {exc}")
+
+    return added
 
 
 def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str = "admin123"):
@@ -48,6 +103,13 @@ def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str
 
         print("[init_db] 创建数据表...")
         db.create_all()
+
+        # 存量库结构巡检：补齐 V3 回复层级字段与索引
+        added = ensure_reply_hierarchy_columns()
+        if added:
+            print(f"[init_db] 已补充层级结构: {', '.join(added)}")
+        else:
+            print("[init_db] 层级字段与索引已就绪，无需变更")
 
         # 检查管理员是否已存在
         existing = User.query.filter_by(username=admin_user).first()

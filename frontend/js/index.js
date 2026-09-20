@@ -37,25 +37,39 @@
     var pagePostBtn = document.getElementById("open-post-btn");
 
     if (API.isLoggedIn()) {
-      var badge = API.el("span", {
-        class: "user-badge",
-        text: "已登录",
-      });
-      // 尝试显示用户名（若缓存有）
+      // 读取缓存的用户信息
       var username = "";
+      var nickname = "";
+      var avatarUrl = "";
       try {
         username = localStorage.getItem("username") || "";
+        nickname = localStorage.getItem("nickname") || "";
+        avatarUrl = localStorage.getItem("avatar_url") || "";
       } catch (e) { /* ignore */ }
-      if (username) {
-        var avatar = API.el("span", {
-          class: "avatar",
-          text: API.avatarChar(username),
-        });
-        badge = API.el("span", {
-          class: "user-badge",
-        }, [avatar, " " + username]);
+      var displayName = nickname || username;
+
+      var badge = API.el("span", {
+        class: "user-badge",
+      });
+      badge.addEventListener("click", function () {
+        window.location.href = "profile.html";
+      });
+      badge.style.cursor = "pointer";
+      if (avatarUrl) {
+        badge.innerHTML = '<span class="avatar avatar-img-wrap"><img class="avatar-img" src="' + avatarUrl + '" alt="" /></span> ' + displayName;
+      } else if (displayName) {
+        badge.innerHTML = '<span class="avatar">' + API.avatarChar(displayName) + '</span> ' + displayName;
+      } else {
+        badge.textContent = "已登录";
       }
       actions.appendChild(badge);
+
+      // 个人中心按钮
+      var profileBtn = API.el("a", {
+        class: "btn btn-ghost btn-sm",
+        attrs: { href: "profile.html" },
+      }, ["⚙", " 我的"]);
+      actions.appendChild(profileBtn);
 
       var postBtn = API.el("a", {
         class: "btn btn-primary btn-sm",
@@ -85,7 +99,12 @@
 
   function handleLogout() {
     API.clearToken();
-    try { localStorage.removeItem("username"); } catch (e) { /* ignore */ }
+    try {
+      localStorage.removeItem("username");
+      localStorage.removeItem("nickname");
+      localStorage.removeItem("avatar_url");
+      localStorage.removeItem("role");
+    } catch (e) { /* ignore */ }
     renderNav();
     showToast("已退出登录", "info");
   }
@@ -117,7 +136,7 @@
   function renderPostCard(post) {
     var id = post.id;
     var title = post.title || "（无标题）";
-    var author = post.username || post.user || "匿名";
+    var author = post.display_name || post.nickname || post.username || post.user || "匿名";
     var content = post.content || "";
     var excerpt = API.excerpt(content, 100);
     var time = API.formatTime(post.created_at);
@@ -128,14 +147,19 @@
         ? post.replies_count
         : (post.replies ? post.replies.length : 0);
 
-    // 是否当前用户可删除
-    var myUsername = "";
-    try { myUsername = localStorage.getItem("username") || ""; } catch (e) { /* ignore */ }
-
-    var voteCol = API.el("div", { class: "post-vote" }, [
-      API.el("div", { class: "vote-icon", attrs: { title: "点赞" }, text: "▲" }),
-      API.el("div", { class: "vote-count", text: replyCount > 0 ? replyCount : "" }),
-    ]);
+    // 头像
+    var avatarUrl = post.avatar_url || "";
+    var voteCol;
+    if (avatarUrl) {
+      voteCol = API.el("div", { class: "post-vote" });
+      voteCol.innerHTML = '<div class="post-avatar post-avatar-img-wrap"><img class="avatar-img" src="' + avatarUrl + '" alt="" /></div>' +
+        '<div class="vote-count" title="回复数">' + (replyCount > 0 ? replyCount : "") + '</div>';
+    } else {
+      voteCol = API.el("div", { class: "post-vote" }, [
+        API.el("div", { class: "post-avatar", text: API.avatarChar(author) }),
+        API.el("div", { class: "vote-count", title: "回复数" }, [String(replyCount)]),
+      ]);
+    }
 
     var metaItems = [
       API.el("span", { class: "meta-item" }, [

@@ -265,7 +265,8 @@
   /**
    * 获取帖子详情
    * @param {number|string} id
-   * @returns {Promise<{post:Object, replies:Array}>}
+   * @returns {Promise<{post:Object, replies:Array, reply_tree:Array, reply_count:number}>}
+   *        V3 起额外返回 reply_tree（嵌套树）与 reply_count
    */
   API.getPost = function (id) {
     return request("/api/posts/" + encodeURIComponent(id), {
@@ -288,14 +289,34 @@
   };
 
   /**
-   * 发布回复
+   * 发布回复（V3：支持楼中楼）
    * @param {number|string} postId
    * @param {string} content
+   * @param {number|string} [parentId] 可选；传入则作为对该回复的子回复，
+   *        省略或传 null 表示一级回复
+   * @returns {Promise<Object>} 新回复节点（含 depth/root_id/parent_id 等层级字段）
    */
-  API.createReply = function (postId, content) {
+  API.createReply = function (postId, content, parentId) {
+    var body = { content: content };
+    if (parentId !== undefined && parentId !== null && parentId !== "") {
+      body.parent_id = parentId;
+    }
     return request("/api/posts/" + encodeURIComponent(postId) + "/replies", {
       method: "POST",
-      body: { content: content },
+      body: body,
+      auth: true,
+    });
+  };
+
+  /**
+   * 删除回复（V3 新增）
+   * 仅回复作者或管理员可调用；服务端会级联删除其所有子孙回复。
+   * @param {number|string} replyId
+   * @returns {Promise<{message:string, deleted_count:number}>}
+   */
+  API.deleteReply = function (replyId) {
+    return request("/api/replies/" + encodeURIComponent(replyId), {
+      method: "DELETE",
       auth: true,
     });
   };
@@ -496,6 +517,20 @@
    */
   API.sanitize = function (html) {
     if (!html) return "";
+    try {
+      return sanitizeInner(html);
+    } catch (e) {
+      // 兜底：DOM 清洗异常时降级为纯文本转义，保证页面不白屏
+      console.warn("[sanitize] fallback to plain text:", e && e.message);
+      return String(html)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+  };
+
+  function sanitizeInner(html) {
     // 移除隐藏 HTML 注释（防止条件注释攻击等）
     html = html.replace(/<!--[\s\S]*?-->/g, "");
     // 移除 <?...?> 处理指令
@@ -504,13 +539,21 @@
     var doc = new DOMParser().parseFromString("<body>" + html + "</body>", "text/html");
     var body = doc.body;
 
-    // 先收集所有元素节点（避免遍历中修改树导致 TreeWalker 状态错乱）
+    // 先收集所有元素节点（避免遍历中修改树导致迭代状态错乱）。
+    // 注意：body 属于 DOMParser 解析出的独立 document，
+    // 不能用主文档的 Range.createNodeIterator 跨文档遍历，
+    // 这里改用纯 DOM 递归遍历，兼容性最好。
     var allElements = [];
-    var range = document.createRange();
-    range.selectNodeContents(body);
-    var iter = range.createNodeIterator(body, NodeFilter.SHOW_ELEMENT);
-    var n;
-    while ((n = iter.nextNode())) allElements.push(n);
+    (function collect(node) {
+      var child = node.firstChild;
+      while (child) {
+        if (child.nodeType === 1) {
+          allElements.push(child);
+          collect(child);
+        }
+        child = child.nextSibling;
+      }
+    })(body);
 
     var DANGEROUS_TAGS = ["script", "style", "iframe", "object", "embed", "link", "meta", "base", "form", "input", "button", "select", "textarea"];
 
@@ -525,7 +568,8 @@
           node.parentNode.removeChild(node);
         } else {
           // 非危险标签：解包，保留文本内容
-          var frag = document.createDocumentFragment();
+          // 用 body 所属文档创建片段，避免跨文档 Fragment 兼容性问题
+          var frag = body.ownerDocument.createDocumentFragment();
           var child = node.firstChild;
           while (child) {
             frag.appendChild(child);
@@ -571,7 +615,7 @@
     });
 
     return body.innerHTML;
-  };
+  }
 
   /* ------------------------------------------------------------------------
    * DOM 工具
@@ -633,6 +677,7 @@
 
   /**
    * 头像字母：取用户名首字母（中文取首字）
+   * 如果本地缓存有头像 URL，优先返回图片标记
    */
   API.avatarChar = function (name) {
     if (!name) return "?";
@@ -641,6 +686,100 @@
     // 中文/日文/韩文取首字符；英文取首字母
     var c = s.charAt(0);
     return /[一-龥぀-ゟ゠-ヿ가-힯]/.test(c) ? c : c.toUpperCase();
+  };
+
+  /* ------------------------------------------------------------------------
+   * 用户中心接口（V2）
+   * ---------------------------------------------------------------------- */
+
+  /**
+   * 获取当前用户资料
+   * @returns {Promise<{id,username,nickname,bio,avatar_url,role,created_at}>}
+   */
+  API.getProfile = function () {
+    return request("/api/user/profile", {
+      method: "GET",
+      auth: true,
+    });
+  };
+
+  /**
+   * 更新昵称与简介
+   * @param {Object} data  {nickname, bio}
+   */
+  API.updateProfile = function (data) {
+    return request("/api/user/profile", {
+      method: "PUT",
+      body: data,
+      auth: true,
+    });
+  };
+
+  /**
+   * 修改密码
+   * @param {string} oldPassword
+   * @param {string} newPassword
+   */
+  API.changePassword = function (oldPassword, newPassword) {
+    return request("/api/user/password", {
+      method: "POST",
+      body: { old_password: oldPassword, new_password: newPassword },
+      auth: true,
+    });
+  };
+
+  /**
+   * 上传头像
+   * @param {File} file 图片文件对象
+   */
+  API.uploadAvatar = function (file) {
+    var token = API.getToken();
+    var formData = new FormData();
+    formData.append("file", file);
+
+    var url = buildUrl("/api/user/avatar");
+    var controller = new AbortController();
+    var timeout = setTimeout(function () { controller.abort(); }, 30000);
+
+    return fetch(url, {
+      method: "POST",
+      headers: token ? { "Authorization": "Bearer " + token } : {},
+      body: formData,
+      credentials: "same-origin",
+      signal: controller.signal,
+    }).then(function (response) {
+      clearTimeout(timeout);
+      var ct = response.headers.get("Content-Type") || "";
+      var isJson = ct.indexOf("application/json") !== -1;
+      return response.text().then(function (text) {
+        var data;
+        try { data = isJson ? JSON.parse(text) : { _raw: text }; }
+        catch (e) { data = { _raw: text }; }
+
+        if (response.status === 401) {
+          handleUnauthorized();
+          var ue = new Error("登录已过期，请重新登录");
+          ue.status = 401;
+          ue.data = data;
+          throw ue;
+        }
+
+        if (!response.ok) {
+          var msg = extractError(data, "请求失败（HTTP " + response.status + "）");
+          var err = new Error(msg);
+          err.status = response.status;
+          err.data = data;
+          throw err;
+        }
+
+        return data;
+      });
+    }).catch(function (err) {
+      if (err && err.name === "AbortError") {
+        throw new Error("请求超时，请检查网络连接或后端服务是否启动");
+      }
+      throw err;
+    });
   };
 
   /* ------------------------------------------------------------------------

@@ -9,7 +9,7 @@
   <meta name="description" content="帖子详情 - 技术交流论坛" />
   <title>帖子详情 - 技术论坛</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
-  <link rel="stylesheet" href="css/style.css?v=2" />
+  <link rel="stylesheet" href="css/style.css?v=4" />
   <!-- marked.js - Markdown 解析 -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- highlight.js - 代码高亮（浏览器预构建版，含所有常用语言） -->
@@ -52,6 +52,7 @@
           <section class="replies-section">
             <h2 class="replies-title">
               回复 <span id="reply-count" class="count">0</span>
+              <span class="hint">· 支持楼中楼，最多 3 层</span>
             </h2>
 
             <!-- 回复列表 -->
@@ -70,7 +71,7 @@
                   <textarea
                     id="reply-content"
                     class="form-control md-editor"
-                    placeholder="写下你的回复，支持 Markdown 语法..."
+                    placeholder="发表你的观点，支持 Markdown（回复某条回复请点该条下方的「回复」）"
                   ></textarea>
                   <div class="form-hint">
                     支持 Markdown 语法 · <kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速提交
@@ -78,7 +79,7 @@
                   <div class="form-error">请输入回复内容</div>
                 </div>
                 <div class="reply-form-actions">
-                  <span class="reply-form-hint">登录后即可参与讨论</span>
+                  <span class="reply-form-hint">一级回复 · 支持 Markdown</span>
                   <button id="reply-submit-btn" class="btn btn-primary">发布回复</button>
                 </div>
               </div>
@@ -116,7 +117,7 @@
   <div id="toast-container" class="toast-container"></div>
 
   <!-- ==================== Scripts ==================== -->
-  <script src="js/api.js?v=2"></script>
-  <script src="js/post.js?v=2"></script>
+  <script src="js/api.js?v=5"></script>
+  <script src="js/post.js?v=4"></script>
 </body>
 </html>
