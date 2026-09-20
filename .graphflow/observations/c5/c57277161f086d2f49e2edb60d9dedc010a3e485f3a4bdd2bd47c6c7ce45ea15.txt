@@ -1,0 +1,406 @@
+<path>D:\桌面\deep\Forum system\frontend\js\post.js</path>
+<type>file</type>
+<content>
+40:   /**
+41:    * 配置 marked 选项（一次性）
+42:    */
+43:   function setupMarked() {
+44:     if (!marked) return;
+45:     try {
+46:       if (marked.use) {
+47:         // marked v4+ API
+48:         marked.use({
+49:           gfm: true,           // GitHub Flavored Markdown
+50:           breaks: true,        // 单个换行视为 <br>
+51:           pedantic: false,
+52:           async: false,
+53:         });
+54:       } else {
+55:         // 旧版 marked 选项
+56:         marked.setOptions({
+57:           gfm: true,
+58:           breaks: true,
+59:           pedantic: false,
+60:           smartLists: true,
+61:           mangle: false,
+62:           headerIds: false,
+63:           sanitize: false, // 关闭内置 sanitize（已弃用），改用自定义 sanitize
+64:         });
+65:       }
+66:     } catch (e) {
+67:       console.warn("[post.js] marked 配置失败:", e);
+68:     }
+69:   }
+70: 
+71:   /**
+72:    * 渲染 Markdown 为安全 HTML
+73:    * @param {string} md 原始 Markdown
+74:    * @returns {string} 安全 HTML
+75:    */
+76:   function renderMarkdown(md) {
+77:     if (!md) return "";
+78:     var html;
+79:     if (marked) {
+80:       try {
+81:         html = marked.parse(md);
+82:       } catch (e) {
+83:         console.warn("[post.js] marked 解析失败，回退为纯文本:", e);
+84:         html = "<p>" + escapeHtml(md) + "</p>";
+85:       }
+86:     } else {
+87:       // marked 未加载时，至少做纯文本转义
+88:       html = "<p>" + escapeHtml(md) + "</p>";
+89:     }
+90: 
+91:     // 代码块高亮
+92:     html = highlightCodeBlocks(html);
+93: 
+94:     // XSS 清洗
+95:     html = API.sanitize(html);
+96: 
+97:     return html;
+98:   }
+99: 
+100:   function escapeHtml(s) {
+101:     return String(s)
+102:       .replace(/&/g, "&amp;")
+103:       .replace(/</g, "&lt;")
+104:       .replace(/>/g, "&gt;")
+105:       .replace(/"/g, "&quot;")
+106:       .replace(/'/g, "&#39;");
+107:   }
+108: 
+109:   /**
+110:    * 对 <pre><code> 块执行 highlight.js 高亮
+111:    * @param {string} html
+112:    * @returns {string}
+113:    */
+114:   function highlightCodeBlocks(html) {
+115:     var hljs = global.hljs || (typeof window !== "undefined" ? window.hljs : null);
+116:     if (!hljs) return html;
+117:     // 直接操作 DOM 片段，避免 sanitize 误伤代码块 class
+118:     var tmp = document.createElement("div");
+119:     tmp.innerHTML = html;
+120:     var codeNodes = tmp.querySelectorAll("pre code");
+121:     codeNodes.forEach(function (node) {
+122:       try {
+123:         hljs.highlightElement(node);
+124:       } catch (e) {
+125:         // 跳过单块错误
+126:       }
+127:     });
+128:     return tmp.innerHTML;
+129:   }
+130: 
+131:   /* ------------------------------------------------------------------------
+132:    * URL 参数解析
+133:    * ---------------------------------------------------------------------- */
+134:   function getPostId() {
+135:     var params = new URLSearchParams(window.location.search);
+136:     var id = params.get("id") || params.get("postId") || params.get("p");
+137:     return id ? decodeURIComponent(id) : null;
+138:   }
+139: 
+140:   /* ------------------------------------------------------------------------
+141:    * 当前用户（从 localStorage 缓存读取）
+142:    * ---------------------------------------------------------------------- */
+143:   function getCurrentUser() {
+144:     var me = {
+145:       username: "", nickname: "", avatarUrl: "", role: "", displayName: "",
+146:     };
+147:     try {
+148:       me.username = localStorage.getItem("username") || "";
+149:       me.nickname = localStorage.getItem("nickname") || "";
+150:       me.avatarUrl = localStorage.getItem("avatar_url") || "";
+151:       me.role = localStorage.getItem("role") || "";
+152:     } catch (e) { /* ignore */ }
+153:     me.displayName = me.nickname || me.username;
+154:     return me;
+155:   }
+156: 
+157:   function isCurrentUserAdmin() {
+158:     return getCurrentUser().role === "admin";
+159:   }
+160: 
+161:   function isCurrentUser(username) {
+162:     if (!username) return false;
+163:     var me = getCurrentUser();
+164:     return String(me.username).toLowerCase() === String(username).toLowerCase();
+165:   }
+166: 
+167:   function isPostAuthor(username) {
+168:     return !!(currentPost && username &&
+169:       String(currentPost.username || "").toLowerCase() === String(username).toLowerCase());
+170:   }
+171: 
+172:   /** 跳转到登录页并带回跳地址 */
+173:   function goLogin() {
+174:     window.location.href = "auth.html?redirect=" + encodeURIComponent(window.location.href);
+175:   }
+176: 
+177:   /**
+178:    * 渲染头像（按身份区分配色）
+179:    * @param {Object} who {avatar_url, display_name}
+180:    * @param {Object} opts
+181:    *   base  : 基础类名，如 'avatar' / 'avatar-lg' / 'reply-avatar'
+182:    *   size  : 'lg' 时给 <img> 追加 avatar-lg-img
+183:    *   op    : 楼主 → avatar-op
+184:    *   admin : 管理员 → avatar-admin
+185:    * @returns {HTMLElement}
+186:    */
+187:   function renderAvatar(who, opts) {
+188:     opts = opts || {};
+189:     var cls = (opts.base || "") +
+190:       (opts.size === "lg" ? " avatar-lg" : "") +
+191:       (opts.op ? " avatar-op" : "") +
+192:       (opts.admin ? " avatar-admin" : "");
+193:     cls = cls.trim();
+194: 
+195:     if (who.avatar_url) {
+196:       var node = API.el("span", { class: cls + " avatar-img-wrap" });
+197:       node.innerHTML = '<img class="avatar-img"' +
+198:         (opts.size === "lg" ? " avatar-lg-img" : "") +
+199:         '" src="' + escapeHtml(who.avatar_url) + '" alt="" />';
+200:       return node;
+201:     }
+202:     return API.el("span", {
+203:       class: cls,
+204:       text: API.avatarChar(who.display_name),
+205:     });
+206:   }
+207: 
+208:   /* ------------------------------------------------------------------------
+209:    * 头部导航
+210:    * ---------------------------------------------------------------------- */
+211:   function renderNav() {
+212:     var actions = dom.navActions;
+213:     if (!actions) return;
+214:     actions.innerHTML = "";
+215: 
+216:     var homeLink = API.el("a", {
+217:       class: "btn btn-ghost btn-sm",
+218:       attrs: { href: "index.html" },
+219:     }, ["←", " 首页"]);
+220:     actions.appendChild(homeLink);
+221: 
+222:     if (API.isLoggedIn()) {
+223:       var me = getCurrentUser();
+224:       if (me.displayName) {
+225:         var badge = API.el("span", { class: "user-badge" });
+226:         badge.addEventListener("click", function () {
+227:           window.location.href = "profile.html";
+228:         });
+229:         badge.style.cursor = "pointer";
+230:         badge.appendChild(renderAvatar(me, { base: "avatar", admin: me.role === "admin" }));
+231:         badge.appendChild(document.createTextNode(" " + me.displayName));
+232:         actions.appendChild(badge);
+233:       }
+234: 
+235:       var profileBtn = API.el("a", {
+236:         class: "btn btn-ghost btn-sm",
+237:         attrs: { href: "profile.html" },
+238:       }, ["⚙", " 我的"]);
+239:       actions.appendChild(profileBtn);
+240: 
+241:       var logoutBtn = API.el("a", {
+242:         class: "btn btn-ghost btn-sm",
+243:         attrs: { href: "javascript:void(0)" },
+244:       }, ["登出"]);
+245:       logoutBtn.addEventListener("click", handleLogout);
+246:       actions.appendChild(logoutBtn);
+247:     } else {
+248:       var loginBtn = API.el("a", {
+249:         class: "btn btn-primary btn-sm",
+250:         attrs: { href: "auth.html?redirect=" + encodeURIComponent(window.location.href) },
+251:       }, ["登录 / 注册"]);
+252:       actions.appendChild(loginBtn);
+253:     }
+254:   }
+255: 
+256:   function handleLogout() {
+257:     API.clearToken();
+258:     try {
+259:       localStorage.removeItem("username");
+260:       localStorage.removeItem("nickname");
+261:       localStorage.removeItem("avatar_url");
+262:       localStorage.removeItem("role");
+263:     } catch (e) { /* ignore */ }
+264:     renderNav();
+265:     renderReplyForm();
+266:     if (currentPost) renderPost(currentPost);
+267:     showToast("已退出登录", "info");
+268:   }
+269: 
+270:   /* ------------------------------------------------------------------------
+271:    * 帖子详情渲染（V3：凸显楼主）
+272:    * ---------------------------------------------------------------------- */
+273:   function renderPost(post) {
+274:     var titleEl = dom.postTitle;
+275:     var metaEl = dom.postMeta;
+276:     var contentEl = dom.postContent;
+277:     var actionsEl = dom.postActions;
+278:     if (!titleEl || !contentEl) return;
+279: 
+280:     currentPost = post;
+281:     var author = post.display_name || post.nickname || post.username || "匿名";
+282:     var time = API.formatTime(post.created_at);
+283:     var fullTime = API.formatDateTime(post.created_at);
+284:     var isAdmin = post.role === "admin";
+285: 
+286:     titleEl.textContent = post.title || "（无标题）";
+287:     document.title = (post.title || "帖子详情") + " - 技术论坛";
+288: 
+289:     // 主贴卡片：作者即楼主，佩戴主色左边框
+290:     var wrapper = dom.postDetailWrapper;
+291:     if (wrapper) wrapper.classList.add("post-op");
+292:     if (metaEl) {
+293:       metaEl.classList.remove("post-detail-admin");
+294:       if (isAdmin) metaEl.classList.add("post-detail-admin");
+295:     }
+296: 
+297:     // meta
+298:     metaEl.innerHTML = "";
+299:     metaEl.appendChild(renderAvatar(
+300:       { avatar_url: post.avatar_url, display_name: author },
+301:       { base: "avatar-lg", op: true, admin: isAdmin }
+302:     ));
+303:     metaEl.appendChild(API.el("span", { class: "author-name", text: author }));
+304:     // 帖子作者永远是楼主
+305:     metaEl.appendChild(API.el("span", { class: "tag-op", text: "楼主" }));
+306:     if (isAdmin) {
+307:       metaEl.appendChild(API.el("span", { class: "tag-admin", text: "ADMIN" }));
+308:     }
+309:     metaEl.appendChild(API.el("span", { class: "meta-dot", text: "·" }));
+310:     metaEl.appendChild(API.el("span", { attrs: { title: fullTime }, text: time }));
+311:     metaEl.appendChild(API.el("span", { class: "meta-dot", text: "·" }));
+312:     metaEl.appendChild(API.el("span", { text: replyCount + " 条回复" }));
+313: 
+314:     // actions：楼主或管理员可删除
+315:     actionsEl.innerHTML = "";
+316:     var canDelete = API.isLoggedIn() &&
+317:       (isCurrentUser(post.username) || isCurrentUserAdmin());
+318:     if (canDelete) {
+319:       var delBtn = API.el("button", { class: "btn btn-danger btn-sm" }, ["🗑", " 删除"]);
+320:       delBtn.addEventListener("click", confirmDeletePost);
+321:       actionsEl.appendChild(delBtn);
+322:     }
+323: 
+324:     // 渲染内容
+325:     contentEl.innerHTML = renderMarkdown(post.content || "");
+326:   }
+327: 
+328:   /* ------------------------------------------------------------------------
+329:    * 回复树渲染（V3）
+330:    * ---------------------------------------------------------------------- */
+331:   function renderReplies(tree) {
+332:     currentTree = tree || [];
+333:     var listEl = dom.replyList;
+334:     var countEl = dom.replyCount;
+335:     if (!listEl) return;
+336:     listEl.innerHTML = "";
+337: 
+338:     if (countEl) countEl.textContent = replyCount;
+339: 
+340:     if (currentTree.length === 0) {
+341:       listEl.appendChild(API.el("div", { class: "empty-state" }, [
+342:         API.el("div", { class: "icon", text: "💬" }),
+343:         API.el("div", { class: "text", text: "还没有回复" }),
+344:         API.el("div", { class: "hint", text: "登录后发表你的第一条回复" }),
+345:       ]));
+346:       return;
+347:     }
+348: 
+349:     var floor = 0;
+350:     currentTree.forEach(function (node) {
+351:       floor += 1;
+352:       listEl.appendChild(renderReplyNode(node, 0, floor));
+353:     });
+354:   }
+355: 
+356:   /**
+357:    * 递归渲染单个回复节点
+358:    * @param {Object} node 后端返回的回复节点
+359:    * @param {number} depth 展示深度（0 = 一级回复）
+360:    * @param {number} [floorNo] 楼层号，仅一级回复传入
+361:    * @returns {HTMLElement}
+362:    */
+363:   function renderReplyNode(node, depth, floorNo) {
+364:     if (!node) return document.createElement("div");
+365: 
+366:     var author = node.display_name || node.nickname || node.username || "匿名";
+367:     var time = API.formatTime(node.created_at);
+368:     var fullTime = API.formatDateTime(node.created_at);
+369:     var isAdmin = node.role === "admin";
+370:     var isOP = !!node.is_author || isPostAuthor(node.username);
+371:     var who = { avatar_url: node.avatar_url, display_name: author };
+372: 
+373:     // 卡片容器（按身份与深度附加修饰类）
+374:     var cardCls = "reply-item";
+375:     if (isOP) cardCls += " reply-op";
+376:     if (isAdmin) cardCls += " reply-admin";
+377:     if (depth > 0) cardCls += " reply-nested";
+378:     if (depth >= 2) cardCls += " reply-deep";
+379: 
+380:     var card = API.el("div", {
+381:       class: cardCls,
+382:       attrs: { "data-id": node.id, "data-depth": String(depth) },
+383:       id: "reply-" + node.id,
+384:     });
+385: 
+386:     // 头像
+387:     card.appendChild(renderAvatar(who, { base: "reply-avatar", op: isOP, admin: isAdmin }));
+388: 
+389:     // ===== 主体 =====
+390:     var body = API.el("div", { class: "reply-body" });
+391: 
+392:     // 头部：作者 + 楼主/ADMIN 徽标 + 楼层号 + 时间
+393:     var headChildren = [
+394:       API.el("span", { class: "reply-author", text: author }),
+395:     ];
+396:     if (isOP) headChildren.push(API.el("span", { class: "tag-op", text: "楼主" }));
+397:     if (isAdmin) headChildren.push(API.el("span", { class: "tag-admin", text: "ADMIN" }));
+398:     if (depth === 0 && floorNo) {
+399:       headChildren.push(API.el("span", { class: "reply-floor", text: "#" + floorNo }));
+400:     }
+401:     headChildren.push(API.el("span", {
+402:       class: "reply-time",
+403:       attrs: { title: fullTime },
+404:       text: time,
+405:     }));
+406:     body.appendChild(API.el("div", { class: "reply-head" }, headChildren));
+407: 
+408:     // 引用条：回复 @被回复人（仅子回复）
+409:     if (node.reply_to_display_name) {
+410:       body.appendChild(API.el("div", { class: "reply-quote" }, [
+411:         API.el("span", { class: "reply-quote-label", text: "回复" }),
+412:         API.el("span", { class: "reply-quote-target", text: "@" + node.reply_to_display_name }),
+413:       ]));
+414:     }
+415: 
+416:     // 内容（Markdown → 安全 HTML）
+417:     var contentEl = API.el("div", { class: "reply-content md-content" });
+418:     contentEl.innerHTML = renderMarkdown(node.content || "");
+419:     body.appendChild(contentEl);
+420: 
+421:     // 操作栏：回复（所有人，未登录跳登录）/ 删除（作者或管理员）
+422:     var actions = API.el("div", { class: "reply-actions" });
+423:     var replyBtn = API.el("button", {
+424:       class: "btn btn-ghost btn-sm reply-action-btn",
+425:       attrs: { type: "button" },
+426:     }, ["💬", " 回复"]);
+427:     replyBtn.addEventListener("click", function () {
+428:       if (!API.isLoggedIn()) { goLogin(); return; }
+429:       openInlineReply(node);
+430:     });
+431:     actions.appendChild(replyBtn);
+432: 
+433:     if (API.isLoggedIn() &&
+434:         (isCurrentUser(node.username) || isCurrentUserAdmin())) {
+435:       var delBtn = API.el("button", {
+436:         class: "btn btn-ghost btn-sm reply-action-btn reply-action-delete",
+437:         attrs: { type: "button" },
+438:       }, ["🗑", " 删除"]);
+439:       delBtn.addEventListener("click", function () { confirmDeleteReply(node); });
+
+(Showing lines 40-439 of 872. Use offset=440 to continue.)
+</content>

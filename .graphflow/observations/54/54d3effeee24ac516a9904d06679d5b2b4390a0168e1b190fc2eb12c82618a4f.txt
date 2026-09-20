@@ -1,0 +1,210 @@
+<path>D:\桌面\deep\Forum system\deploy\monitor.py</path>
+<type>file</type>
+<content>
+479:     try:
+480:         if CONFIG["smtp_use_ssl"]:
+481:             smtp = smtplib.SMTP_SSL(host, port, timeout=20)
+482:         else:
+483:             smtp = smtplib.SMTP(host, port, timeout=20)
+484:             if CONFIG["smtp_use_starttls"]:
+485:                 smtp.starttls()
+486:         smtp.login(user, pwd)
+487:         smtp.send_message(msg)
+488:         smtp.quit()
+489:         LOG.info("告警邮件发送成功 → %s", CONFIG["alert_to"])
+490:         return True
+491:     except Exception as exc:
+492:         LOG.error("告警邮件发送失败: %s", exc)
+493:         return False
+494: 
+495: 
+496: # ============================================================================
+497: # 报告渲染
+498: # ============================================================================
+499: 
+500: def render_report(results: List[CheckResult],
+501:                   consecutive: Optional[Dict[str, int]] = None,
+502:                   ) -> Tuple[str, str]:
+503:     """返回 (html, text) 双格式报告。"""
+504:     now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+505:     host = os.uname().nodename
+506:     critical = [r for r in results if r.alert]
+507:     status = "🟢 正常" if not critical else "🔴 异常"
+508: 
+509:     # 文本格式
+510:     text_lines = [
+511:         f"论坛系统巡检报告  {now}",
+512:         f"主机: {host}    总体状态: {status}",
+513:         "=" * 60,
+514:     ]
+515:     for r in results:
+516:         flag = "✅" if r.ok else ("🚨" if r.alert else "⚠️")
+517:         text_lines.append(f"{flag} [{r.name}]")
+518:         for dline in r.detail.splitlines():
+519:             text_lines.append(f"    {dline}")
+520:         if consecutive:
+521:             cnt = consecutive.get(r.name, 0)
+522:             if cnt:
+523:                 text_lines.append(f"    连续失败: {cnt} 次")
+524:         text_lines.append("")
+525: 
+526:     # HTML 格式
+527:     html_rows = []
+528:     for r in results:
+529:         color = "#28a745" if r.ok else ("#dc3545" if r.alert else "#ffc107")
+530:         icon = "✅" if r.ok else ("🚨" if r.alert else "⚠️")
+531:         cnt = (consecutive or {}).get(r.name, 0)
+532:         cnt_html = f'<div style="font-size:0.85em;color:#666;">连续失败 {cnt} 次</div>' if cnt else ""
+533:         html_rows.append(
+534:             f'<tr>'
+535:             f'<td style="padding:10px;border-bottom:1px solid #eee;">{icon} {r.name}</td>'
+536:             f'<td style="padding:10px;border-bottom:1px solid #eee;">'
+537:             f'<span style="color:{color};font-weight:bold;">'
+538:             f'{"正常" if r.ok else "告警"}</span>'
+539:             f'<br><small style="color:#666;">{r.detail.replace(chr(10), "<br>")}</small>'
+540:             f'{cnt_html}</td>'
+541:             f'</tr>'
+542:         )
+543: 
+544:     html = f"""<!DOCTYPE html>
+545: <html><head><meta charset="utf-8">
+546: <style>
+547: body {{ font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; max-width: 820px; margin: 24px auto; color: #333; }}
+548: h1 {{ color: #333; border-bottom: 3px solid {'#dc3545' if critical else '#28a745'}; padding-bottom: 8px; }}
+549: .meta {{ color: #666; margin-bottom: 16px; }}
+550: table {{ width: 100%; border-collapse: collapse; }}
+551: th {{ text-align: left; padding: 12px; background: #f8f9fa; }}
+552: .footer {{ margin-top: 24px; color: #999; font-size: 0.85em; }}
+553: </style></head><body>
+554: <h1>论坛系统巡检报告</h1>
+555: <div class="meta">时间: {now}　|　主机: {host}　|　总体状态: <b style="color:{'#dc3545' if critical else '#28a745'}">{status}</b></div>
+556: <table><tr><th>检查项</th><th>结果</th></tr>{''.join(html_rows)}</table>
+557: <div class="footer">本报告由 forum monitor.py 自动生成，若未主动修复请通知运维团队。</div>
+558: </body></html>"""
+559: 
+560:     return html, "\n".join(text_lines)
+561: 
+562: 
+563: # ============================================================================
+564: # 主流程
+565: # ============================================================================
+566: 
+567: def run_checks() -> List[CheckResult]:
+568:     """执行所有检查项。"""
+569:     checks = [
+570:         check_5xx,
+571:         check_error_log,
+572:         check_service,
+573:         check_database,
+574:         check_disk,
+575:         check_memory,
+576:         check_load,
+577:     ]
+578:     results: List[CheckResult] = []
+579:     for fn in checks:
+580:         try:
+581:             r = fn()
+582:             results.append(r)
+583:         except Exception as exc:
+584:             LOG.exception("检查 %s 抛出异常: %s", fn.__name__, exc)
+585:             results.append(CheckResult(
+586:                 name=fn.__name__,
+587:                 ok=False,
+588:                 detail=f"检查抛出异常: {exc}",
+589:                 alert=True,
+590:             ))
+591:     return results
+592: 
+593: 
+594: def main() -> int:
+595:     parser = argparse.ArgumentParser(description="论坛系统日志巡检与告警脚本")
+596:     parser.add_argument("--dry-run", action="store_true",
+597:                         help="仅打印巡检结果，不发送邮件")
+598:     parser.add_argument("--json", action="store_true",
+599:                         help="以 JSON 格式输出")
+600:     parser.add_argument("--verbose", action="store_true",
+601:                         help="输出调试信息")
+602:     parser.add_argument("--config", type=str, default=None,
+603:                         help="指定配置文件 (JSON 格式)，覆盖内置配置")
+604:     args = parser.parse_args()
+605: 
+606:     if args.verbose:
+607:         CONFIG["verbose"] = True
+608:         LOG.setLevel(logging.DEBUG)
+609: 
+610:     if args.config:
+611:         try:
+612:             with open(args.config, "r", encoding="utf-8") as f:
+613:                 overrides = json.loads(f.read())
+614:             CONFIG.update(overrides)
+615:             LOG.info("已加载配置文件: %s", args.config)
+616:         except Exception as exc:
+617:             LOG.error("加载配置文件失败: %s", exc)
+618:             return 2
+619: 
+620:     LOG.info("=== 论坛系统巡检开始 ===")
+621:     LOG.info("参数: dry_run=%s json=%s verbose=%s",
+622:              args.dry_run, args.json, args.verbose)
+623: 
+624:     start = time.time()
+625:     results = run_checks()
+626:     elapsed = round(time.time() - start, 2)
+627: 
+628:     state = AlertState(CONFIG["state_dir"])
+629:     consecutive: Dict[str, int] = {}
+630:     alert_list: List[CheckResult] = []
+631: 
+632:     for r in results:
+633:         if r.alert:
+634:             cnt = state.increment(r.name)
+635:             consecutive[r.name] = cnt
+636:             if cnt >= CONFIG["consecutive_failures_threshold"]:
+637:                 alert_list.append(r)
+638:         else:
+639:             state.reset(r.name)
+640: 
+641:     critical = bool(alert_list)
+642:     LOG.info("巡检耗时 %.2fs，异常项 %d / %d", elapsed, len(alert_list), len(results))
+643: 
+644:     if args.json:
+645:         payload = {
+646:             "timestamp": _dt.datetime.now().isoformat(),
+647:             "duration_seconds": elapsed,
+648:             "overall_status": "critical" if critical else "ok",
+649:             "checks": [
+650:                 {
+651:                     "name": r.name,
+652:                     "ok": r.ok,
+653:                     "alert": r.alert,
+654:                     "detail": r.detail,
+655:                     "consecutive_failures": consecutive.get(r.name, 0),
+656:                 }
+657:                 for r in results
+658:             ],
+659:         }
+660:         print(json.dumps(payload, ensure_ascii=False, indent=2))
+661:         return 1 if critical else 0
+662: 
+663:     # 文本输出
+664:     html, text = render_report(results, consecutive)
+665:     print(text)
+666: 
+667:     # 告警邮件
+668:     if critical and not args.dry_run:
+669:         subject = (
+670:             f"[论坛告警][{'CRITICAL' if critical else 'WARNING'}] "
+671:             f"{os.uname().nodename} - 巡检异常 {len(alert_list)} 项 "
+672:             f"({time.strftime('%Y-%m-%d %H:%M')})"
+673:         )
+674:         send_alert_email(subject, html, text)
+675:     elif critical:
+676:         LOG.info("dry-run 模式，跳过邮件发送")
+677: 
+678:     return 1 if critical else 0
+679: 
+680: 
+681: if __name__ == "__main__":
+682:     sys.exit(main())
+
+(End of file - total 682 lines)
+</content>

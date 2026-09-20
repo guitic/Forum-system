@@ -1,0 +1,346 @@
+<path>D:\桌面\deep\Forum system\frontend\js\index.js</path>
+<type>file</type>
+<content>
+56:       });
+57:       badge.style.cursor = "pointer";
+58:       if (avatarUrl) {
+59:         badge.innerHTML = '<span class="avatar avatar-img-wrap"><img class="avatar-img" src="' + avatarUrl + '" alt="" /></span> ' + displayName;
+60:       } else if (displayName) {
+61:         badge.innerHTML = '<span class="avatar">' + API.avatarChar(displayName) + '</span> ' + displayName;
+62:       } else {
+63:         badge.textContent = "已登录";
+64:       }
+65:       actions.appendChild(badge);
+66: 
+67:       // 个人中心按钮
+68:       var profileBtn = API.el("a", {
+69:         class: "btn btn-ghost btn-sm",
+70:         attrs: { href: "profile.html" },
+71:       }, ["⚙", " 我的"]);
+72:       actions.appendChild(profileBtn);
+73: 
+74:       var postBtn = API.el("a", {
+75:         class: "btn btn-primary btn-sm",
+76:         attrs: { href: "javascript:void(0)" },
+77:       }, ["✍", " 发帖"]);
+78:       postBtn.addEventListener("click", openPostModal);
+79:       actions.appendChild(postBtn);
+80: 
+81:       var logoutBtn = API.el("a", {
+82:         class: "btn btn-ghost btn-sm",
+83:         attrs: { href: "javascript:void(0)" },
+84:       }, ["登出"]);
+85:       logoutBtn.addEventListener("click", handleLogout);
+86:       actions.appendChild(logoutBtn);
+87: 
+88:       if (pagePostBtn) pagePostBtn.classList.remove("hidden");
+89:     } else {
+90:       var loginBtn = API.el("a", {
+91:         class: "btn btn-primary btn-sm",
+92:         attrs: { href: "auth.html" },
+93:       }, ["登录 / 注册"]);
+94:       actions.appendChild(loginBtn);
+95: 
+96:       if (pagePostBtn) pagePostBtn.classList.add("hidden");
+97:     }
+98:   }
+99: 
+100:   function handleLogout() {
+101:     API.clearToken();
+102:     try {
+103:       localStorage.removeItem("username");
+104:       localStorage.removeItem("nickname");
+105:       localStorage.removeItem("avatar_url");
+106:       localStorage.removeItem("role");
+107:     } catch (e) { /* ignore */ }
+108:     renderNav();
+109:     showToast("已退出登录", "info");
+110:   }
+111: 
+112:   /* ------------------------------------------------------------------------
+113:    * 列表渲染
+114:    * ---------------------------------------------------------------------- */
+115:   function renderList(posts, state) {
+116:     var list = dom.postList;
+117:     if (!list) return;
+118:     list.innerHTML = "";
+119: 
+120:     if (!posts || posts.length === 0) {
+121:       list.appendChild(
+122:         API.el("div", { class: "empty-state" }, [
+123:           API.el("div", { class: "icon", text: "📭" }),
+124:           API.el("div", { class: "text", text: "还没有任何帖子" }),
+125:           API.el("div", { class: "hint", text: "登录并创建第一个帖子，开启技术交流之旅" }),
+126:         ])
+127:       );
+128:       return;
+129:     }
+130: 
+131:     posts.forEach(function (post) {
+132:       list.appendChild(renderPostCard(post));
+133:     });
+134:   }
+135: 
+136:   function renderPostCard(post) {
+137:     var id = post.id;
+138:     var title = post.title || "（无标题）";
+139:     var author = post.display_name || post.nickname || post.username || post.user || "匿名";
+140:     var content = post.content || "";
+141:     var excerpt = API.excerpt(content, 100);
+142:     var time = API.formatTime(post.created_at);
+143:     var fullTime = API.formatDateTime(post.created_at);
+144:     var replyCount = post.reply_count !== undefined
+145:       ? post.reply_count
+146:       : post.replies_count !== undefined
+147:         ? post.replies_count
+148:         : (post.replies ? post.replies.length : 0);
+149: 
+150:     // 头像
+151:     var avatarUrl = post.avatar_url || "";
+152:     var voteCol;
+153:     if (avatarUrl) {
+154:       voteCol = API.el("div", { class: "post-vote" });
+155:       voteCol.innerHTML = '<div class="post-avatar post-avatar-img-wrap"><img class="avatar-img" src="' + avatarUrl + '" alt="" /></div>' +
+156:         '<div class="vote-count" title="回复数">' + (replyCount > 0 ? replyCount : "") + '</div>';
+157:     } else {
+158:       voteCol = API.el("div", { class: "post-vote" }, [
+159:         API.el("div", { class: "post-avatar", text: API.avatarChar(author) }),
+160:         API.el("div", { class: "vote-count", title: "回复数" }, [String(replyCount)]),
+161:       ]);
+162:     }
+163: 
+164:     var metaItems = [
+165:       API.el("span", { class: "meta-item" }, [
+166:         "by ",
+167:         API.el("span", { class: "author", text: author }),
+168:       ]),
+169:       API.el("span", { class: "meta-item", attrs: { title: fullTime }, text: time }),
+170:       API.el("span", { class: "meta-item replies-count" }, [
+171:         "💬", " ", String(replyCount), " 回复",
+172:       ]),
+173:     ];
+174: 
+175:     var body = API.el("div", { class: "post-body" }, [
+176:       API.el("a", {
+177:         class: "post-title-link",
+178:         attrs: { href: "post.html?id=" + encodeURIComponent(id) },
+179:         text: title,
+180:       }),
+181:       excerpt
+182:         ? API.el("div", { class: "post-excerpt", text: excerpt })
+183:         : API.el("div", { class: "post-excerpt text-light", text: "（无内容）" }),
+184:       API.el("div", { class: "post-meta" }, metaItems),
+185:     ]);
+186: 
+187:     return API.el("article", {
+188:       class: "card card-hover post-card",
+189:       attrs: { "data-id": id },
+190:     }, [voteCol, body]);
+191:   }
+192: 
+193:   /* ------------------------------------------------------------------------
+194:    * 分页
+195:    * ---------------------------------------------------------------------- */
+196:   function renderPagination(state) {
+197:     var pg = dom.pagination;
+198:     if (!pg) return;
+199:     pg.innerHTML = "";
+200:     if (!state || totalPages <= 1) return;
+201: 
+202:     var page = state.page || 1;
+203:     var pages = totalPages;
+204: 
+205:     var info = API.el("span", {
+206:       class: "page-info",
+207:       text: "第 " + page + " / " + pages + " 页 · 共 " + totalCount + " 篇",
+208:     });
+209: 
+210:     // 上一页
+211:     var prevBtn = API.el("button", {
+212:       class: "page-btn",
+213:       text: "«",
+214:     });
+215:     prevBtn.setAttribute("aria-label", "上一页");
+216:     if (page <= 1) prevBtn.disabled = true;
+217:     prevBtn.addEventListener("click", function () { if (page > 1) gotoPage(page - 1); });
+218:     pg.appendChild(prevBtn);
+219: 
+220:     // 页码列表（中间省略）
+221:     var pageButtons = buildPageButtons(page, pages);
+222:     pageButtons.forEach(function (item) {
+223:       if (item === "...") {
+224:         pg.appendChild(API.el("span", { class: "ellipsis", text: "…" }));
+225:       } else {
+226:         var active = item === page;
+227:         var btn = API.el("button", {
+228:           class: "page-btn" + (active ? " active" : ""),
+229:           text: String(item),
+230:         });
+231:         btn.addEventListener("click", function () { gotoPage(item); });
+232:         pg.appendChild(btn);
+233:       }
+234:     });
+235: 
+236:     // 下一页
+237:     var nextBtn = API.el("button", {
+238:       class: "page-btn",
+239:       text: "»",
+240:     });
+241:     nextBtn.setAttribute("aria-label", "下一页");
+242:     if (page >= pages) nextBtn.disabled = true;
+243:     nextBtn.addEventListener("click", function () { if (page < pages) gotoPage(page + 1); });
+244:     pg.appendChild(nextBtn);
+245: 
+246:     pg.appendChild(info);
+247:   }
+248: 
+249:   function buildPageButtons(current, total) {
+250:     // 显示 current 附近 5 个页码
+251:     var buttons = [];
+252:     var range = 2; // 当前页前后各 2 个
+253:     var start = Math.max(1, current - range);
+254:     var end = Math.min(total, current + range);
+255: 
+256:     if (start > 1) {
+257:       buttons.push(1);
+258:       if (start > 2) buttons.push("...");
+259:     }
+260:     for (var i = start; i <= end; i++) buttons.push(i);
+261:     if (end < total) {
+262:       if (end < total - 1) buttons.push("...");
+263:       buttons.push(total);
+264:     }
+265:     return buttons;
+266:   }
+267: 
+268:   function gotoPage(p) {
+269:     if (p < 1 || p > totalPages || p === currentPage) return;
+270:     currentPage = p;
+271:     loadPosts();
+272:     // 滚动到列表顶部
+273:     if (dom.postList) {
+274:       dom.postList.scrollIntoView({ behavior: "smooth", block: "start" });
+275:     }
+276:   }
+277: 
+278:   /* ------------------------------------------------------------------------
+279:    * 数据加载
+280:    * ---------------------------------------------------------------------- */
+281:   async function loadPosts() {
+282:     dom.postList.innerHTML = "";
+283:     dom.postList.appendChild(API.el("div", { class: "loading", text: "加载中" }));
+284:     dom.pagination.innerHTML = "";
+285: 
+286:     try {
+287:       var data = await API.getPosts(currentPage, PAGE_SIZE);
+288:       var posts = data.posts || [];
+289:       totalCount = data.total || 0;
+290:       totalPages = data.pages || Math.ceil(totalCount / PAGE_SIZE) || 1;
+291:       renderList(posts);
+292:       renderPagination(data);
+293:     } catch (err) {
+294:       dom.postList.innerHTML = "";
+295:       var banner = API.el("div", { class: "error-banner" }, [
+296:         "⚠ ", " ", err.message || "加载失败",
+297:       ]);
+298:       dom.postList.appendChild(banner);
+299:       dom.postList.appendChild(API.el("div", { class: "empty-state" }, [
+300:         API.el("div", { class: "icon", text: "🔌" }),
+301:         API.el("div", { class: "text", text: "无法连接到后端服务" }),
+302:         API.el("div", { class: "hint", text: "请确认后端 API 已启动，并刷新页面重试" }),
+303:       ]));
+304:     }
+305:   }
+306: 
+307:   /* ------------------------------------------------------------------------
+308:    * 发帖模态框
+309:    * ---------------------------------------------------------------------- */
+310:   function openPostModal() {
+311:     if (!API.isLoggedIn()) {
+312:       window.location.href = "auth.html?redirect=" + encodeURIComponent(window.location.href);
+313:       return;
+314:     }
+315:     var backdrop = dom.postModal;
+316:     if (!backdrop) return;
+317:     // 清空表单
+318:     dom.postTitle.value = "";
+319:     dom.postContent.value = "";
+320:     clearFormErrors();
+321:     backdrop.classList.remove("hidden");
+322:     setTimeout(function () { dom.postTitle.focus(); }, 50);
+323:   }
+324: 
+325:   function closePostModal() {
+326:     if (dom.postModal) dom.postModal.classList.add("hidden");
+327:   }
+328: 
+329:   function clearFormErrors() {
+330:     if (dom.postTitleGroup) dom.postTitleGroup.classList.remove("has-error");
+331:     if (dom.postContentGroup) dom.postContentGroup.classList.remove("has-error");
+332:   }
+333: 
+334:   async function submitPost() {
+335:     var title = (dom.postTitle.value || "").trim();
+336:     var content = (dom.postContent.value || "").trim();
+337: 
+338:     clearFormErrors();
+339:     var hasError = false;
+340:     if (!title) {
+341:       dom.postTitleGroup.classList.add("has-error");
+342:       hasError = true;
+343:     }
+344:     if (!content) {
+345:       dom.postContentGroup.classList.add("has-error");
+346:       hasError = true;
+347:     }
+348:     if (hasError) return;
+349: 
+350:     var btn = dom.postSubmitBtn;
+351:     btn.disabled = true;
+352:     btn.textContent = "发布中…";
+353:     try {
+354:       await API.createPost(title, content);
+355:       showToast("帖子发布成功！", "success");
+356:       closePostModal();
+357:       // 重置分页到第 1 页，确保能看到新帖
+358:       currentPage = 1;
+359:       await loadPosts();
+360:     } catch (err) {
+361:       showToast(err.message || "发布失败", "error");
+362:     } finally {
+363:       btn.disabled = false;
+364:       btn.textContent = "发布帖子";
+365:     }
+366:   }
+367: 
+368:   /* ------------------------------------------------------------------------
+369:    * Toast
+370:    * ---------------------------------------------------------------------- */
+371:   var toastTimer = null;
+372:   function showToast(msg, type) {
+373:     var container = dom.toastContainer;
+374:     if (!container) return;
+375:     // 清空旧的
+376:     container.innerHTML = "";
+377:     var t = API.el("div", { class: "toast " + (type || "info"), text: msg });
+378:     container.appendChild(t);
+379:     if (toastTimer) clearTimeout(toastTimer);
+380:     toastTimer = setTimeout(function () {
+381:       if (t.parentNode) t.parentNode.removeChild(t);
+382:     }, 3000);
+383:   }
+384: 
+385:   /* ------------------------------------------------------------------------
+386:    * 初始化
+387:    * ---------------------------------------------------------------------- */
+388:   function init() {
+389:     // 绑定 DOM
+390:     dom.navActions = document.getElementById("nav-actions");
+391:     dom.postList = document.getElementById("post-list");
+392:     dom.pagination = document.getElementById("pagination");
+393:     dom.postModal = document.getElementById("post-modal");
+394:     dom.postTitle = document.getElementById("post-title");
+395:     dom.postContent = document.getElementById("post-content");
+
+(Showing lines 56-395 of 459. Use offset=396 to continue.)
+</content>

@@ -1,0 +1,446 @@
+<path>D:\桌面\deep\Forum system\frontend\js\profile.js</path>
+<type>file</type>
+<content>
+49:         actions.appendChild(badge);
+50:       }
+51:       var logoutBtn = API.el("a", {
+52:         class: "btn btn-ghost btn-sm",
+53:         attrs: { href: "javascript:void(0)" },
+54:       }, ["登出"]);
+55:       logoutBtn.addEventListener("click", handleLogout);
+56:       actions.appendChild(logoutBtn);
+57:     } else {
+58:       // 未登录则重定向
+59:       window.location.replace("auth.html?redirect=" + encodeURIComponent("profile.html"));
+60:       return;
+61:     }
+62:   }
+63: 
+64:   /**
+65:    * 构建头像 HTML（优先使用头像图片，回退到首字母）
+66:    */
+67:   function buildAvatarHTML(displayName, sizeClass) {
+68:     var avatarUrl = "";
+69:     try { avatarUrl = localStorage.getItem("avatar_url") || ""; } catch (e) { /* ignore */ }
+70:     var cls = sizeClass || "avatar";
+71:     if (avatarUrl) {
+72:       return '<span class="' + cls + ' avatar-img-wrap"><img class="avatar-img" src="' + escapeAttr(avatarUrl) + '" alt="" /></span>';
+73:     }
+74:     return '<span class="' + cls + '">' + API.avatarChar(displayName || "?") + '</span>';
+75:   }
+76: 
+77:   function escapeHtml(s) {
+78:     return String(s == null ? "" : s)
+79:       .replace(/&/g, "&amp;")
+80:       .replace(/</g, "&lt;")
+81:       .replace(/>/g, "&gt;")
+82:       .replace(/"/g, "&quot;")
+83:       .replace(/'/g, "&#39;");
+84:   }
+85: 
+86:   function escapeAttr(s) {
+87:     return escapeHtml(s);
+88:   }
+89: 
+90:   function handleLogout() {
+91:     API.clearToken();
+92:     try {
+93:       localStorage.removeItem("username");
+94:       localStorage.removeItem("nickname");
+95:       localStorage.removeItem("avatar_url");
+96:     } catch (e) { /* ignore */ }
+97:     window.location.href = "index.html";
+98:   }
+99: 
+100:   /* ------------------------------------------------------------------------
+101:    * 资料加载
+102:    * ---------------------------------------------------------------------- */
+103:   async function loadProfile() {
+104:     dom.profileLoading.classList.remove("hidden");
+105:     dom.profileWrapper.classList.add("hidden");
+106: 
+107:     try {
+108:       var profile = await API.getProfile();
+109: 
+110:       // 更新本地缓存
+111:       try {
+112:         localStorage.setItem("username", profile.username || "");
+113:         if (profile.nickname) localStorage.setItem("nickname", profile.nickname);
+114:         else localStorage.removeItem("nickname");
+115:         if (profile.avatar_url) localStorage.setItem("avatar_url", profile.avatar_url);
+116:         else localStorage.removeItem("avatar_url");
+117:         if (profile.role) localStorage.setItem("role", profile.role);
+118:         else localStorage.removeItem("role");
+119:       } catch (e) { /* ignore */ }
+120: 
+121:       // 渲染头像
+122:       renderAvatar(profile);
+123: 
+124:       // 渲染基本信息
+125:       dom.displayName.textContent = profile.display_name || profile.nickname || profile.username;
+126:       dom.username.textContent = profile.username;
+127:       dom.role.textContent = profile.role === "admin" ? "管理员" : "普通用户";
+128:       dom.createdAt.textContent = profile.created_at
+129:         ? API.formatDateTime(profile.created_at)
+130:         : "未知";
+131: 
+132:       // 填充表单
+133:       dom.nicknameInput.value = profile.nickname || "";
+134:       dom.bioInput.value = profile.bio || "";
+135:       updateCharCount();
+136: 
+137:       dom.profileLoading.classList.add("hidden");
+138:       dom.profileWrapper.classList.remove("hidden");
+139:     } catch (err) {
+140:       dom.profileLoading.classList.add("hidden");
+141:       if (err.status === 401) {
+142:         // Token 过期，跳转登录
+143:         window.location.href = "auth.html?redirect=" + encodeURIComponent("profile.html");
+144:       } else {
+145:         dom.profileError.classList.remove("hidden");
+146:         dom.profileError.innerHTML = "";
+147:         dom.profileError.appendChild(API.el("div", { class: "icon", text: "⚠️" }));
+148:         dom.profileError.appendChild(API.el("div", { class: "text", text: err.message || "加载失败" }));
+149:         dom.profileError.appendChild(API.el("a", {
+150:           class: "btn btn-primary",
+151:           attrs: { href: "index.html" },
+152:           text: "返回首页",
+153:         }));
+154:       }
+155:     }
+156:   }
+157: 
+158:   /* ------------------------------------------------------------------------
+159:    * 头像渲染与上传
+160:    * ---------------------------------------------------------------------- */
+161:   function renderAvatar(profile) {
+162:     var avatarEl = dom.profileAvatar;
+163:     var infoEl = dom.avatarUrlInfo;
+164:     if (!avatarEl) return;
+165: 
+166:     if (profile.avatar_url) {
+167:       avatarEl.classList.remove("avatar-letter");
+168:       avatarEl.classList.add("avatar-img-wrap");
+169:       avatarEl.innerHTML = '<img class="avatar-img avatar-lg-img" src="' + escapeAttr(profile.avatar_url) + '" alt="头像" />';
+170:       if (infoEl) {
+171:         infoEl.classList.remove("hidden");
+172:         infoEl.textContent = "当前头像：" + profile.avatar_url;
+173:       }
+174:     } else {
+175:       var displayName = profile.display_name || profile.username || "?";
+176:       avatarEl.classList.add("avatar-letter");
+177:       avatarEl.classList.remove("avatar-img-wrap");
+178:       avatarEl.textContent = API.avatarChar(displayName);
+179:       if (infoEl) infoEl.classList.add("hidden");
+180:     }
+181:   }
+182: 
+183:   async function handleAvatarUpload(e) {
+184:     var file = e.target.files && e.target.files[0];
+185:     if (!file) return;
+186: 
+187:     // 校验类型
+188:     var allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+189:     if (allowedTypes.indexOf(file.type) === -1) {
+190:       showToast("请选择 JPG / PNG / WebP / GIF 格式的图片", "error");
+191:       e.target.value = "";
+192:       return;
+193:     }
+194: 
+195:     // 校验大小（2MB）
+196:     if (file.size > 2 * 1024 * 1024) {
+197:       showToast("图片大小不能超过 2MB", "error");
+198:       e.target.value = "";
+199:       return;
+200:     }
+201: 
+202:     try {
+203:       var data = await API.uploadAvatar(file);
+204:       showToast("头像上传成功！", "success");
+205: 
+206:       // 更新本地缓存
+207:       try { localStorage.setItem("avatar_url", data.avatar_url); } catch (ex) { /* ignore */ }
+208: 
+209:       // 更新头像显示
+210:       renderAvatar({ avatar_url: data.avatar_url });
+211:       // 更新导航栏头像
+212:       renderNav();
+213:     } catch (err) {
+214:       showToast(err.message || "头像上传失败", "error");
+215:     } finally {
+216:       e.target.value = ""; // 重置文件输入
+217:     }
+218:   }
+219: 
+220:   /* ------------------------------------------------------------------------
+221:    * 昵称与简介
+222:    * ---------------------------------------------------------------------- */
+223:   function updateCharCount() {
+224:     var len = (dom.bioInput.value || "").length;
+225:     var countEl = dom.bioCharCount;
+226:     if (countEl) countEl.textContent = String(len);
+227:   }
+228: 
+229:   async function saveProfile() {
+230:     var nickname = (dom.nicknameInput.value || "").trim();
+231:     var bio = (dom.bioInput.value || "").trim();
+232: 
+233:     // 清除错误
+234:     clearErrors(["nickname-group", "bio-group"]);
+235: 
+236:     var hasError = false;
+237: 
+238:     // 昵称校验
+239:     if (nickname.length > 50) {
+240:       setError("nickname-group", "昵称不能超过 50 个字符");
+241:       hasError = true;
+242:     }
+243: 
+244:     // 简介校验
+245:     if (bio.length > 200) {
+246:       setError("bio-group", "简介不能超过 200 个字符");
+247:       hasError = true;
+248:     }
+249: 
+250:     if (hasError) return;
+251: 
+252:     var btn = dom.saveProfileBtn;
+253:     btn.disabled = true;
+254:     btn.textContent = "保存中…";
+255: 
+256:     try {
+257:       await API.updateProfile({
+258:         nickname: nickname || null,
+259:         bio: bio || null,
+260:       });
+261: 
+262:       // 更新本地缓存
+263:       try {
+264:         if (nickname) localStorage.setItem("nickname", nickname);
+265:         else localStorage.removeItem("nickname");
+266:       } catch (e) { /* ignore */ }
+267: 
+268:       // 更新显示名
+269:       dom.displayName.textContent = nickname || dom.username.textContent;
+270:       showToast("资料保存成功！", "success");
+271: 
+272:       // 更新导航栏
+273:       renderNav();
+274:     } catch (err) {
+275:       showToast(err.message || "保存失败", "error");
+276:     } finally {
+277:       btn.disabled = false;
+278:       btn.textContent = "保存资料";
+279:     }
+280:   }
+281: 
+282:   /* ------------------------------------------------------------------------
+283:    * 密码修改
+284:    * ---------------------------------------------------------------------- */
+285:   async function changePassword() {
+286:     var oldPwd = dom.oldPasswordInput.value || "";
+287:     var newPwd = dom.newPasswordInput.value || "";
+288:     var confirmPwd = dom.confirmPasswordInput.value || "";
+289: 
+290:     clearErrors(["old-password-group", "new-password-group", "confirm-password-group"]);
+291: 
+292:     var hasError = false;
+293: 
+294:     // 校验
+295:     if (!oldPwd) {
+296:       setError("old-password-group", "请输入当前密码");
+297:       hasError = true;
+298:     }
+299:     if (!newPwd) {
+300:       setError("new-password-group", "请输入新密码");
+301:       hasError = true;
+302:     } else {
+303:       var strengthErr = validatePasswordStrength(newPwd);
+304:       if (strengthErr) {
+305:         setError("new-password-group", strengthErr);
+306:         hasError = true;
+307:       }
+308:     }
+309:     if (!confirmPwd) {
+310:       setError("confirm-password-group", "请确认新密码");
+311:       hasError = true;
+312:     } else if (newPwd && newPwd !== confirmPwd) {
+313:       setError("confirm-password-group", "两次输入的新密码不一致");
+314:       hasError = true;
+315:     }
+316: 
+317:     if (hasError) return;
+318: 
+319:     var btn = dom.changePasswordBtn;
+320:     btn.disabled = true;
+321:     btn.textContent = "修改中…";
+322: 
+323:     try {
+324:       await API.changePassword(oldPwd, newPwd);
+325:       showToast("密码修改成功！", "success");
+326: 
+327:       // 清空密码输入框
+328:       dom.oldPasswordInput.value = "";
+329:       dom.newPasswordInput.value = "";
+330:       dom.confirmPasswordInput.value = "";
+331:       updatePasswordStrength("");
+332:     } catch (err) {
+333:       showToast(err.message || "密码修改失败", "error");
+334:     } finally {
+335:       btn.disabled = false;
+336:       btn.textContent = "修改密码";
+337:     }
+338:   }
+339: 
+340:   /**
+341:    * 前端密码强度校验（与后端一致）
+342:    */
+343:   function validatePasswordStrength(password) {
+344:     if (!password) return "请输入密码";
+345:     if (password.length < 8) return "密码长度至少 8 个字符";
+346:     if (password.length > 72) return "密码长度不能超过 72 个字符";
+347:     if (!/[a-zA-Z]/.test(password)) return "密码必须包含至少一个字母";
+348:     if (!/\d/.test(password)) return "密码必须包含至少一个数字";
+349:     if (!/[^\w]/.test(password)) return "密码必须包含至少一个特殊字符（如 . @ # $ 等）";
+350:     return "";
+351:   }
+352: 
+353:   /**
+354:    * 密码强度可视化
+355:    */
+356:   function updatePasswordStrength(password) {
+357:     var strengthEl = dom.passwordStrength;
+358:     if (!strengthEl) return;
+359: 
+360:     var bar = strengthEl.querySelector(".strength-bar");
+361:     var text = strengthEl.querySelector(".strength-text");
+362: 
+363:     if (!password) {
+364:       bar.className = "strength-bar";
+365:       bar.style.width = "0%";
+366:       text.textContent = "";
+367:       return;
+368:     }
+369: 
+370:     var score = 0;
+371:     if (password.length >= 8) score++;
+372:     if (password.length >= 12) score++;
+373:     if (/[a-zA-Z]/.test(password)) score++;
+374:     if (/\d/.test(password)) score++;
+375:     if (/[^a-zA-Z0-9]/.test(password)) score++;
+376:     if (password.length >= 16) score++;
+377: 
+378:     var levels = [
+379:       { width: "20%", color: "#ef4444", text: "弱" },
+380:       { width: "40%", color: "#f59e0b", text: "较弱" },
+381:       { width: "60%", color: "#eab308", text: "一般" },
+382:       { width: "80%", color: "#22c55e", text: "强" },
+383:       { width: "100%", color: "#10b981", text: "极强" },
+384:     ];
+385: 
+386:     var idx = Math.min(score - 1, levels.length - 1);
+387:     if (idx < 0) idx = 0;
+388: 
+389:     bar.className = "strength-bar";
+390:     bar.style.width = levels[idx].width;
+391:     bar.style.background = levels[idx].color;
+392:     text.textContent = levels[idx].text;
+393:   }
+394: 
+395:   /**
+396:    * 密码显示/隐藏切换
+397:    */
+398:   function togglePassword(targetId) {
+399:     var input = document.getElementById(targetId);
+400:     if (!input) return;
+401:     if (input.type === "password") {
+402:       input.type = "text";
+403:     } else {
+404:       input.type = "password";
+405:     }
+406:   }
+407: 
+408:   /* ------------------------------------------------------------------------
+409:    * 表单错误处理
+410:    * ---------------------------------------------------------------------- */
+411:   function setError(groupId, message) {
+412:     var group = document.getElementById(groupId);
+413:     if (!group) return;
+414:     group.classList.add("has-error");
+415:     var errEl = group.querySelector(".form-error");
+416:     if (errEl) errEl.textContent = message;
+417:   }
+418: 
+419:   function clearErrors(groupIds) {
+420:     groupIds.forEach(function (gid) {
+421:       var group = document.getElementById(gid);
+422:       if (!group) return;
+423:       group.classList.remove("has-error");
+424:       var errEl = group.querySelector(".form-error");
+425:       if (errEl) errEl.textContent = "";
+426:     });
+427:   }
+428: 
+429:   /* ------------------------------------------------------------------------
+430:    * Toast
+431:    * ---------------------------------------------------------------------- */
+432:   var toastTimer = null;
+433:   function showToast(msg, type) {
+434:     var container = dom.toastContainer;
+435:     if (!container) return;
+436:     container.innerHTML = "";
+437:     var t = API.el("div", { class: "toast " + (type || "info"), text: msg });
+438:     container.appendChild(t);
+439:     if (toastTimer) clearTimeout(toastTimer);
+440:     toastTimer = setTimeout(function () {
+441:       if (t.parentNode) t.parentNode.removeChild(t);
+442:     }, 3200);
+443:   }
+444: 
+445:   /* ------------------------------------------------------------------------
+446:    * 初始化
+447:    * ---------------------------------------------------------------------- */
+448:   function init() {
+449:     // DOM 绑定
+450:     dom.navActions = document.getElementById("nav-actions");
+451:     dom.profileLoading = document.getElementById("profile-loading");
+452:     dom.profileWrapper = document.getElementById("profile-wrapper");
+453:     dom.profileError = document.getElementById("profile-error");
+454:     dom.profileAvatar = document.getElementById("profile-avatar");
+455:     dom.avatarUrlInfo = document.getElementById("profile-avatar-url");
+456:     dom.displayName = document.getElementById("profile-display-name");
+457:     dom.username = document.getElementById("profile-username");
+458:     dom.role = document.getElementById("profile-role");
+459:     dom.createdAt = document.getElementById("profile-created-at");
+460:     dom.nicknameInput = document.getElementById("nickname-input");
+461:     dom.bioInput = document.getElementById("bio-input");
+462:     dom.bioCharCount = document.getElementById("bio-char-count");
+463:     dom.saveProfileBtn = document.getElementById("save-profile-btn");
+464:     dom.oldPasswordInput = document.getElementById("old-password-input");
+465:     dom.newPasswordInput = document.getElementById("new-password-input");
+466:     dom.confirmPasswordInput = document.getElementById("confirm-password-input");
+467:     dom.changePasswordBtn = document.getElementById("change-password-btn");
+468:     dom.passwordStrength = document.getElementById("password-strength");
+469:     dom.toastContainer = document.getElementById("toast-container");
+470: 
+471:     // 检查登录状态
+472:     if (!API.isLoggedIn()) {
+473:       window.location.replace("auth.html?redirect=" + encodeURIComponent("profile.html"));
+474:       return;
+475:     }
+476: 
+477:     renderNav();
+478: 
+479:     // 头像上传事件
+480:     var avatarInput = document.getElementById("avatar-upload-input");
+481:     if (avatarInput) {
+482:       avatarInput.addEventListener("change", handleAvatarUpload);
+483:     }
+484: 
+485:     // 简介字数统计
+486:     if (dom.bioInput) {
+487:       dom.bioInput.addEventListener("input", updateCharCount);
+488:     }
+
+(Showing lines 49-488 of 530. Use offset=489 to continue.)
+</content>
