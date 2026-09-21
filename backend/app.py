@@ -132,18 +132,18 @@ def create_app(config_obj=None):
     @app.route("/uploads/<path:filename>", methods=["GET"])
     def serve_uploads(filename):
         """提供上传文件（头像等）的静态资源服务。"""
-        upload_dir = os.path.join(config.UPLOAD_DIR)
-        # 安全校验：防止目录遍历
-        safe_filename = filename.replace("..", "")
-        full_path = os.path.join(upload_dir, safe_filename)
-        # 确保文件在上传目录内
+        upload_dir = config.UPLOAD_DIR
+        # 安全校验：拼接后直接解析为真实路径（同时规范化 URL 解码/绝对路径注入/
+        # 符号链接），确认最终文件仍位于上传目录内，防止目录遍历攻击。
+        # 前缀比较必须带目录分隔符边界，避免 uploads_evil 这类同级目录被误判为在目录内。
         real_upload_dir = os.path.realpath(upload_dir)
+        full_path = os.path.join(upload_dir, filename)
         real_file_path = os.path.realpath(full_path)
-        if not real_file_path.startswith(real_upload_dir):
+        if not real_file_path.startswith(real_upload_dir + os.sep):
             return jsonify({"error": "访问被拒绝"}), 403
         if not os.path.isfile(full_path):
             return jsonify({"error": "文件不存在"}), 404
-        return send_from_directory(upload_dir, safe_filename)
+        return send_from_directory(upload_dir, filename)
 
     return app
 
