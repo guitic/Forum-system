@@ -36,6 +36,17 @@ def create_app(config_obj=None):
     # 初始化数据库
     db.init_app(app)
 
+    # 确保上传根目录存在。UPLOAD_DIR 默认位于 backend 下且被 .gitignore 忽略，
+    # 全新克隆/部署时目录缺失，需在启动阶段提前创建，避免文件上传时因目录不存在而失败。
+    # 创建失败（如生产环境目录只读）不应阻断启动，仅记录警告，由上传接口暴露具体错误。
+    try:
+        os.makedirs(config.UPLOAD_DIR, exist_ok=True)
+    except OSError as exc:
+        import logging
+        logging.getLogger("forum-api").warning(
+            "创建上传目录失败 %s: %s", config.UPLOAD_DIR, exc
+        )
+
     # 注册蓝图
     from routes.auth import auth_bp
     from routes.posts import posts_bp
