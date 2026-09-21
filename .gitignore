@@ -71,3 +71,7 @@ uploads/
 *.key
 !*.service
 backend/forum.db
+
+# GraphFlow 工具派生产物（索引缓存、代码图谱，可由工具重新生成，频繁变动不纳入版本库）
+.graphflow-cache/index-state.json
+graphflow-out/graphflow-graph.json
