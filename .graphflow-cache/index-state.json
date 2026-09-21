@@ -115,6 +115,11 @@
       "mtimeMs": 1789828406201.8484,
       "hash": "c0a928de9892b9c502633c6f4f635afc",
       "numNodes": 2
+    },
+    ".claude/rules/graphflow.md": {
+      "mtimeMs": 1789911459646.3208,
+      "hash": "7e6c4d908c2d339463659dcfae800596",
+      "numNodes": 8
     }
   }
 }

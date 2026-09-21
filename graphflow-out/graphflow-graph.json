@@ -8267,6 +8267,110 @@
         "sessionId": "dialogue-session:142ik8j",
         "jumped": false
       }
+    },
+    {
+      "id": "file:.claude/rules/graphflow.md",
+      "type": "File",
+      "content": ".claude/rules/graphflow.md",
+      "metadata": {
+        "path": ".claude/rules/graphflow.md",
+        "language": "markdown",
+        "exports": [],
+        "symbolCount": 6,
+        "sizeBytes": 1628
+      }
+    },
+    {
+      "id": "module:.claude/rules/graphflow",
+      "type": "Module",
+      "content": ".claude/rules/graphflow"
+    },
+    {
+      "id": "symbol:.claude/rules/graphflow.md:ee1a57b4",
+      "type": "Symbol",
+      "content": "section GraphFlow for Claude Code (exported) @.claude/rules/graphflow.md:1 # #1",
+      "metadata": {
+        "name": "GraphFlow for Claude Code",
+        "kind": "section",
+        "exported": true,
+        "line": 1,
+        "file": ".claude/rules/graphflow.md",
+        "signature": "# GraphFlow for Claude Code",
+        "signatureHash": "166d4789",
+        "jsdoc": "#1"
+      }
+    },
+    {
+      "id": "symbol:.claude/rules/graphflow.md:dbd0fc58",
+      "type": "Symbol",
+      "content": "section Recommended setup (exported) @.claude/rules/graphflow.md:5 # #2",
+      "metadata": {
+        "name": "Recommended setup",
+        "kind": "section",
+        "exported": true,
+        "line": 5,
+        "file": ".claude/rules/graphflow.md",
+        "signature": "## Recommended setup",
+        "signatureHash": "c185f5c9",
+        "jsdoc": "#2"
+      }
+    },
+    {
+      "id": "symbol:.claude/rules/graphflow.md:9108df17",
+      "type": "Symbol",
+      "content": "section Usage guidance (exported) @.claude/rules/graphflow.md:34 # #2",
+      "metadata": {
+        "name": "Usage guidance",
+        "kind": "section",
+        "exported": true,
+        "line": 34,
+        "file": ".claude/rules/graphflow.md",
+        "signature": "## Usage guidance",
+        "signatureHash": "2e20a888",
+        "jsdoc": "#2"
+      }
+    },
+    {
+      "id": "symbol:.claude/rules/graphflow.md:57948c1",
+      "type": "Symbol",
+      "content": "chunk chunk: GraphFlow for Claude Code (exported) @.claude/rules/graphflow.md:1",
+      "metadata": {
+        "name": "chunk: GraphFlow for Claude Code",
+        "kind": "chunk",
+        "exported": true,
+        "line": 1,
+        "file": ".claude/rules/graphflow.md",
+        "signature": "# GraphFlow for Claude Code\n\nUse GraphFlow as a local orchestration and context service.",
+        "signatureHash": "474b2980"
+      }
+    },
+    {
+      "id": "symbol:.claude/rules/graphflow.md:54e44a65",
+      "type": "Symbol",
+      "content": "chunk chunk: Recommended setup (exported) @.claude/rules/graphflow.md:6",
+      "metadata": {
+        "name": "chunk: Recommended setup",
+        "kind": "chunk",
+        "exported": true,
+        "line": 6,
+        "file": ".claude/rules/graphflow.md",
+        "signature": "Add a local MCP server entry that launches GraphFlow over stdio:\n\n```json\n{\n  \"mcpServers\": {\n    \"graphflow\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"--package=@roarpeng/graphflow\", \"graphflow-mcp\"]\n    }\n  }\n}\n```\n\nDuring repository development you can also point Claude Code at this checkout:\n\n```json\n{\n  \"mcpServers\": {\n    \"graphflow\": {\n      \"command\": \"npm\",\n      \"args\": [\"run\", \"start:mcp\"],\n      \"cwd\": \".\"\n    }\n  }\n}\n```",
+        "signatureHash": "504a5cdc"
+      }
+    },
+    {
+      "id": "symbol:.claude/rules/graphflow.md:cf6142a",
+      "type": "Symbol",
+      "content": "chunk chunk: Usage guidance (exported) @.claude/rules/graphflow.md:35",
+      "metadata": {
+        "name": "chunk: Usage guidance",
+        "kind": "chunk",
+        "exported": true,
+        "line": 35,
+        "file": ".claude/rules/graphflow.md",
+        "signature": "- Ask GraphFlow to plan before broad changes: `graphflow_plan`.\n- Ask GraphFlow to compress and anchor code context: `graphflow_context`.\n- Always pass `rootDir` = this project's absolute path. **Never** pass your home directory, AppData, or an unexpanded `${workspaceFolder}` placeholder — GraphFlow refuses unsafe workspace roots. If a call answers `unsafe workspace root`, retry the same call without `rootDir` (the server then uses its configured workspace).\n- Ask GraphFlow to inspect graph state or skill learnings when the repo history matters.\n- After executing work from a `graphflow_run` `executionDescriptor`, **must** call `graphflow_report_outcome` with the `episodeId` from the run result, a `success` boolean, and optional `lessons` to close the skill flywheel loop.\n- Fall back to `graphflow ... --json` only if MCP is not available (including `graphflow --json outcome report <episodeId> <success>`).\n\nDeepSeek Harness: `dsh plugin --profile web add @roarpeng/graphflow` (or `npx @roarpeng/graphflow install` when `~/.dsh` exists).",
+        "signatureHash": "8ad50ab1"
+      }
     }
   ],
   "edges": [
@@ -14963,6 +15067,81 @@
     {
       "from": "dialogue:142ik8j:0001",
       "to": "dialogue-session:142ik8j",
+      "relation": "part_of"
+    },
+    {
+      "from": "file:.claude/rules/graphflow.md",
+      "to": "module:.claude/rules/graphflow",
+      "relation": "depends_on"
+    },
+    {
+      "from": "file:.claude/rules/graphflow.md",
+      "to": "symbol:.claude/rules/graphflow.md:ee1a57b4",
+      "relation": "defines"
+    },
+    {
+      "from": "file:.claude/rules/graphflow.md",
+      "to": "symbol:.claude/rules/graphflow.md:dbd0fc58",
+      "relation": "defines"
+    },
+    {
+      "from": "file:.claude/rules/graphflow.md",
+      "to": "symbol:.claude/rules/graphflow.md:9108df17",
+      "relation": "defines"
+    },
+    {
+      "from": "file:.claude/rules/graphflow.md",
+      "to": "symbol:.claude/rules/graphflow.md:57948c1",
+      "relation": "defines"
+    },
+    {
+      "from": "file:.claude/rules/graphflow.md",
+      "to": "symbol:.claude/rules/graphflow.md:54e44a65",
+      "relation": "defines"
+    },
+    {
+      "from": "file:.claude/rules/graphflow.md",
+      "to": "symbol:.claude/rules/graphflow.md:cf6142a",
+      "relation": "defines"
+    },
+    {
+      "from": "symbol:.claude/rules/graphflow.md:ee1a57b4",
+      "to": "file:.claude/rules/graphflow.md",
+      "relation": "part_of"
+    },
+    {
+      "from": "symbol:.claude/rules/graphflow.md:dbd0fc58",
+      "to": "file:.claude/rules/graphflow.md",
+      "relation": "part_of"
+    },
+    {
+      "from": "symbol:.claude/rules/graphflow.md:9108df17",
+      "to": "file:.claude/rules/graphflow.md",
+      "relation": "part_of"
+    },
+    {
+      "from": "symbol:.claude/rules/graphflow.md:ee1a57b4",
+      "to": "symbol:.claude/rules/graphflow.md:dbd0fc58",
+      "relation": "next_section"
+    },
+    {
+      "from": "symbol:.claude/rules/graphflow.md:dbd0fc58",
+      "to": "symbol:.claude/rules/graphflow.md:9108df17",
+      "relation": "next_section"
+    },
+    {
+      "from": "symbol:.claude/rules/graphflow.md:57948c1",
+      "to": "file:.claude/rules/graphflow.md",
+      "relation": "part_of"
+    },
+    {
+      "from": "symbol:.claude/rules/graphflow.md:54e44a65",
+      "to": "symbol:.claude/rules/graphflow.md:dbd0fc58",
+      "relation": "part_of"
+    },
+    {
+      "from": "symbol:.claude/rules/graphflow.md:cf6142a",
+      "to": "symbol:.claude/rules/graphflow.md:9108df17",
       "relation": "part_of"
     }
   ]
