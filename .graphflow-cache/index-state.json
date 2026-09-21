@@ -120,6 +120,11 @@
       "mtimeMs": 1789911459646.3208,
       "hash": "7e6c4d908c2d339463659dcfae800596",
       "numNodes": 8
+    },
+    ".trae/rules/git-commit-message.md": {
+      "mtimeMs": 1789974327261.7317,
+      "hash": "626a558c6ce8442f9616c5c149f39f02",
+      "numNodes": 3
     }
   }
 }

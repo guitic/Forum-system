@@ -8371,6 +8371,37 @@
         "signature": "- Ask GraphFlow to plan before broad changes: `graphflow_plan`.\n- Ask GraphFlow to compress and anchor code context: `graphflow_context`.\n- Always pass `rootDir` = this project's absolute path. **Never** pass your home directory, AppData, or an unexpanded `${workspaceFolder}` placeholder — GraphFlow refuses unsafe workspace roots. If a call answers `unsafe workspace root`, retry the same call without `rootDir` (the server then uses its configured workspace).\n- Ask GraphFlow to inspect graph state or skill learnings when the repo history matters.\n- After executing work from a `graphflow_run` `executionDescriptor`, **must** call `graphflow_report_outcome` with the `episodeId` from the run result, a `success` boolean, and optional `lessons` to close the skill flywheel loop.\n- Fall back to `graphflow ... --json` only if MCP is not available (including `graphflow --json outcome report <episodeId> <success>`).\n\nDeepSeek Harness: `dsh plugin --profile web add @roarpeng/graphflow` (or `npx @roarpeng/graphflow install` when `~/.dsh` exists).",
         "signatureHash": "8ad50ab1"
       }
+    },
+    {
+      "id": "file:.trae/rules/git-commit-message.md",
+      "type": "File",
+      "content": ".trae/rules/git-commit-message.md",
+      "metadata": {
+        "path": ".trae/rules/git-commit-message.md",
+        "language": "markdown",
+        "exports": [],
+        "symbolCount": 1,
+        "sizeBytes": 114
+      }
+    },
+    {
+      "id": "module:.trae/rules/git-commit-message",
+      "type": "Module",
+      "content": ".trae/rules/git-commit-message"
+    },
+    {
+      "id": "symbol:.trae/rules/git-commit-message.md:1de21aa9",
+      "type": "Symbol",
+      "content": "chunk ---\nalwaysApply: true\nscene: git_message\n---\n\n在此处编写规则，自定义 AI 生成提交信息的风格。 (exported) @.trae/rules/git-commit-message.md:1",
+      "metadata": {
+        "name": "---\nalwaysApply: true\nscene: git_message\n---\n\n在此处编写规则，自定义 AI 生成提交信息的风格。",
+        "kind": "chunk",
+        "exported": true,
+        "line": 1,
+        "file": ".trae/rules/git-commit-message.md",
+        "signature": "---\nalwaysApply: true\nscene: git_message\n---\n\n在此处编写规则，自定义 AI 生成提交信息的风格。",
+        "signatureHash": "2dc615a9"
+      }
     }
   ],
   "edges": [
@@ -15142,6 +15173,21 @@
     {
       "from": "symbol:.claude/rules/graphflow.md:cf6142a",
       "to": "symbol:.claude/rules/graphflow.md:9108df17",
+      "relation": "part_of"
+    },
+    {
+      "from": "file:.trae/rules/git-commit-message.md",
+      "to": "module:.trae/rules/git-commit-message",
+      "relation": "depends_on"
+    },
+    {
+      "from": "file:.trae/rules/git-commit-message.md",
+      "to": "symbol:.trae/rules/git-commit-message.md:1de21aa9",
+      "relation": "defines"
+    },
+    {
+      "from": "symbol:.trae/rules/git-commit-message.md:1de21aa9",
+      "to": "file:.trae/rules/git-commit-message.md",
       "relation": "part_of"
     }
   ]
