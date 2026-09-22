@@ -17,21 +17,33 @@ from routes.posts import _reply_node, require_auth
 replies_bp = Blueprint("replies", __name__, url_prefix="/api/replies")
 
 
-def _collect_descendant_ids(root_id):
-    """BFS 收集 root_id 及所有子孙回复的 id 集合。
+def _collect_descendant_ids(root_id, post_id):
+    """收集 root_id 及所有子孙回复的 id 集合。
 
-    使用迭代式广度优先遍历，避免深度嵌套导致递归栈溢出。
+    单次查询该帖全部回复的 (id, parent_id)，在内存中构建父子映射后
+    迭代遍历，避免逐层查询的 N+1 问题（查询次数与嵌套深度无关）。
+    含环保护，避免脏数据导致死循环。
     """
+    rows = (
+        db.session.query(Reply.id, Reply.parent_id)
+        .filter(Reply.post_id == post_id)
+        .all()
+    )
+    children_map = {}
+    for rid, pid in rows:
+        if pid is not None:
+            children_map.setdefault(pid, []).append(rid)
+
     to_delete = {root_id}
     frontier = [root_id]
     while frontier:
-        kids = Reply.query.filter(Reply.parent_id.in_(frontier)).all()
-        frontier = []
-        for kid in kids:
-            if kid.id in to_delete:
-                continue
-            to_delete.add(kid.id)
-            frontier.append(kid.id)
+        next_frontier = []
+        for rid in frontier:
+            for kid in children_map.get(rid, []):
+                if kid not in to_delete:
+                    to_delete.add(kid)
+                    next_frontier.append(kid)
+        frontier = next_frontier
     return to_delete
 
 
@@ -102,7 +114,7 @@ def delete_reply(reply_id, current_user):
     if not (is_owner or is_admin):
         return jsonify({"error": "无权删除该回复"}), 403
 
-    to_delete = _collect_descendant_ids(reply.id)
+    to_delete = _collect_descendant_ids(reply.id, reply.post_id)
     deleted_count = len(to_delete)
 
     try:
