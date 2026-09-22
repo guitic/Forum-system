@@ -69,6 +69,28 @@ class Config:
     # 允许的扩展名
     ALLOWED_AVATAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
+    # ---------- 帖子/回复图片上传配置 ----------
+    # 图片子目录
+    IMAGE_DIRNAME = "images"
+    # 分片暂存子目录（断点续传用）
+    IMAGE_CHUNK_DIRNAME = "tmp_chunks"
+    # 单张图片最大大小（10MB）
+    MAX_IMAGE_SIZE = int(os.getenv("MAX_IMAGE_SIZE", str(10 * 1024 * 1024)))
+    # 单帖/单回复最大图片数
+    MAX_IMAGES_PER_CONTENT = int(os.getenv("MAX_IMAGES_PER_CONTENT", "9"))
+    # 分片大小（512KB）
+    IMAGE_CHUNK_SIZE = int(os.getenv("IMAGE_CHUNK_SIZE", str(512 * 1024)))
+    # 允许的图片 MIME 类型（与头像一致）
+    ALLOWED_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    # 允许的扩展名
+    ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+    # 压缩后最长边（像素）
+    IMAGE_MAX_DIMENSION = int(os.getenv("IMAGE_MAX_DIMENSION", "1920"))
+    # JPEG 压缩质量
+    IMAGE_JPEG_QUALITY = int(os.getenv("IMAGE_JPEG_QUALITY", "82"))
+    # 未完成的分片上传保留时长（秒），超期在下次 init 时清理
+    IMAGE_CHUNK_TTL = int(os.getenv("IMAGE_CHUNK_TTL", str(24 * 3600)))
+
     # 昵称最大长度
     MAX_NICKNAME_LENGTH = 50
     # 简介最大长度

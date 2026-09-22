@@ -51,10 +51,12 @@ def create_app(config_obj=None):
     from routes.auth import auth_bp
     from routes.posts import posts_bp
     from routes.replies import replies_bp
+    from routes.upload import upload_bp
     from routes.user import user_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(posts_bp)
     app.register_blueprint(replies_bp)
+    app.register_blueprint(upload_bp)
     app.register_blueprint(user_bp)
 
     # ---------- 统一错误处理 ----------

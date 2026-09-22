@@ -34,6 +34,7 @@
   var replyCount = 0;       // V3：回复总数
   var pendingConfirm = null;// 确认弹窗待执行回调
   var replyBoxActivated = false; // #reply 深链是否已在本次页面加载中消费（防止 loadPost 重入重复滚动）
+  var mainReplyUploader = null; // 一级回复图片上传器
 
   /* ------------------------------------------------------------------------
    * Markdown 渲染管线
@@ -667,20 +668,32 @@
       btn,
     ]);
 
+    // 图片上传区（内联回复，紧凑模式）
+    var imagesEl = API.el("div", { class: "inline-reply-images" });
+    var uploader = null;
+    if (global.ForumImageUpload) {
+      uploader = global.ForumImageUpload.createUploader({
+        container: imagesEl,
+        textarea: ta,
+        onToast: showToast,
+        compact: true,
+      });
+    }
+
     btn.addEventListener("click", function () {
-      submitInlineReply(parentId, ta, btn);
+      submitInlineReply(parentId, ta, btn, uploader);
     });
     ta.addEventListener("keydown", function (e) {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
-        submitInlineReply(parentId, ta, btn);
+        submitInlineReply(parentId, ta, btn, uploader);
       }
     });
 
     return API.el("div", {
       class: "inline-reply-form",
       attrs: { "data-parent": String(parentId) },
-    }, [bar, ta, foot]);
+    }, [bar, ta, imagesEl, foot]);
   }
 
   function closeInlineReply() {
@@ -834,7 +847,7 @@
     }
   }
 
-  async function submitInlineReply(parentId, ta, btn) {
+  async function submitInlineReply(parentId, ta, btn, uploader) {
     if (!currentPost) return;
     if (!API.isLoggedIn()) { goLogin(); return; }
     var content = (ta.value || "").trim();
@@ -848,7 +861,12 @@
       btn.textContent = "提交中…";
     }
     try {
-      await API.createReply(currentPost.id, content, parentId);
+      // 等待进行中的图片上传结束，确保正文图片链接完整
+      if (uploader && uploader.hasPending()) {
+        if (btn) btn.textContent = "等待图片上传…";
+        await uploader.waitAll();
+      }
+      await API.createReply(currentPost.id, ta.value || content, parentId);
       showToast("回复发布成功！", "success");
       loadPost(); // 整棵树刷新，内联表单随之移除
     } catch (err) {
@@ -930,8 +948,14 @@
     btn.disabled = true;
     btn.textContent = "提交中…";
     try {
-      await API.createReply(currentPost.id, content); // 不传 parentId = 一级回复
+      // 等待进行中的图片上传结束，确保正文图片链接完整
+      if (mainReplyUploader && mainReplyUploader.hasPending()) {
+        btn.textContent = "等待图片上传…";
+        await mainReplyUploader.waitAll();
+      }
+      await API.createReply(currentPost.id, dom.replyContent.value || content); // 不传 parentId = 一级回复
       dom.replyContent.value = "";
+      if (mainReplyUploader) mainReplyUploader.reset();
       showToast("回复发布成功！", "success");
       loadPost();
     } catch (err) {
@@ -1149,6 +1173,19 @@
 
     renderNav();
     renderReplyForm();
+
+    // 图片查看大图（Lightbox）：正文图片点击放大
+    if (global.ForumImageUpload) global.ForumImageUpload.setupLightbox();
+
+    // 一级回复图片上传器
+    var replyImagesEl = document.getElementById("reply-images");
+    if (replyImagesEl && global.ForumImageUpload) {
+      mainReplyUploader = global.ForumImageUpload.createUploader({
+        container: replyImagesEl,
+        textarea: dom.replyContent,
+        onToast: showToast,
+      });
+    }
 
     // 帖子编辑表单事件（模块 1）
     if (dom.postEditSaveBtn) {
