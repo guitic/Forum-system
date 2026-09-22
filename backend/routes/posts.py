@@ -17,6 +17,7 @@ import math
 from datetime import datetime, timezone
 
 import jwt
+import sqlalchemy as sa
 from flask import Blueprint, jsonify, request
 
 from config import config
@@ -271,6 +272,16 @@ def list_posts():
     page, limit = _get_pagination()
     offset = (page - 1) * limit
 
+    # 回复数子查询：按 Reply.post_id 统计全部子回复（含嵌套楼中楼）
+    # 与详情接口 len(replies) 口径一致
+    reply_count_subq = (
+        sa.select(sa.func.count())
+        .select_from(Reply)
+        .where(Reply.post_id == Post.id)
+        .correlate(Post)
+        .scalar_subquery()
+    )
+
     query = (
         db.session.query(
             Post.id,
@@ -282,6 +293,7 @@ def list_posts():
             User.nickname,
             User.avatar_url,
             User.role,
+            reply_count_subq.label("reply_count"),
         )
         .join(User, Post.user_id == User.id)
         .order_by(Post.created_at.desc())
@@ -302,6 +314,7 @@ def list_posts():
             "title": r.title,
             "content": r.content,
             "created_at": _parse_dt(r.created_at),
+            "reply_count": int(r.reply_count or 0),
         }
         for r in rows
     ]

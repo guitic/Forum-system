@@ -244,7 +244,8 @@
       var u = new URL(r, window.location.origin);
       if (u.origin !== window.location.origin) return defaultRedirect;
       if (!/^(index|post|auth)\.html/.test(u.pathname.split("/").pop())) return defaultRedirect;
-      return u.pathname + u.search;
+      // 保留 hash（如 post.html?id=1#reply），登录回跳后详情页可据此聚焦回复框
+      return u.pathname + u.search + u.hash;
     } catch (e) {
       return defaultRedirect;
     }

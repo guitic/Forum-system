@@ -167,7 +167,13 @@
         API.el("span", { class: "author", text: author }),
       ]),
       API.el("span", { class: "meta-item", attrs: { title: fullTime }, text: time }),
-      API.el("span", { class: "meta-item replies-count" }, [
+      API.el("a", {
+        class: "meta-item replies-count reply-link",
+        attrs: {
+          href: "post.html?id=" + encodeURIComponent(id) + "#reply",
+          title: "跳转到回复区并回复该帖",
+        },
+      }, [
         "💬", " ", String(replyCount), " 回复",
       ]),
     ];

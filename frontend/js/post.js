@@ -32,6 +32,7 @@
   var currentTree = [];     // V3：回复树（嵌套）
   var replyCount = 0;       // V3：回复总数
   var pendingConfirm = null;// 确认弹窗待执行回调
+  var replyBoxActivated = false; // #reply 深链是否已在本次页面加载中消费（防止 loadPost 重入重复滚动）
 
   /* ------------------------------------------------------------------------
    * Markdown 渲染管线
@@ -593,6 +594,32 @@
     if (form) form.classList.remove("hidden");
   }
 
+  /**
+   * #reply 深链：从列表页点击「N 回复」进入时，让回复区进入就绪状态。
+   * - 已登录：滚动到底部一级回复表单并聚焦输入框，可直接输入
+   * - 未登录：滚动到登录提示；其「去登录」回跳地址保留 #reply，登录完成后自动聚焦
+   * 必须在帖子渲染完成、#post-detail-wrapper 取消 hidden 之后调用。
+   */
+  function maybeActivateReplyBox() {
+    if (replyBoxActivated) return;
+    if (window.location.hash !== "#reply") return;
+    replyBoxActivated = true;
+
+    var loggedIn = API.isLoggedIn();
+    var target = loggedIn ? dom.replyForm : dom.replyLoginPrompt;
+    if (!target || target.classList.contains("hidden")) return;
+
+    // 等渲染后的布局稳定再滚动，避免页面仍处于 hidden 状态导致 scrollIntoView 无效
+    setTimeout(function () {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (loggedIn && dom.replyContent) {
+        // preventScroll 阻止浏览器为保持焦点元素可见而回弹脚本滚动的位置
+        try { dom.replyContent.focus({ preventScroll: true }); }
+        catch (e) { dom.replyContent.focus(); }
+      }
+    }, 120);
+  }
+
   async function submitReply() {
     if (!currentPost) return;
     if (!API.isLoggedIn()) {
@@ -728,6 +755,8 @@
       dom.postDetailWrapper.classList.remove("hidden");
       renderPost(post);
       renderReplies(tree);
+      // 列表页「N 回复」深链：渲染完成后滚动到回复区并聚焦
+      maybeActivateReplyBox();
     } catch (err) {
       dom.postLoading.classList.add("hidden");
       if (err.status === 404) {

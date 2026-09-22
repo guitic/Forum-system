@@ -432,6 +432,16 @@ main {
   font-weight: 600;
 }
 
+.post-meta .replies-count.reply-link {
+  text-decoration: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.post-meta .replies-count.reply-link:hover {
+  opacity: 0.8;
+}
+
 .tag-admin {
   display: inline-block;
   padding: 1px 6px;
