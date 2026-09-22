@@ -50,15 +50,26 @@
       } catch (e) { /* ignore */ }
       var displayName = nickname || username;
 
-      // 账号 + 下拉菜单（hover 显示）
+      // 账号 + 下拉菜单（hover 显示）。导航区仅显示头像，用户名收入下拉菜单头部
       var wrap = API.el("div", { class: "user-badge-wrap" });
-      var trigger = API.el("div", { class: "user-badge user-badge-trigger" });
+      var trigger = API.el("div", {
+        class: "user-badge user-badge-trigger",
+        attrs: {
+          title: displayName || "账号菜单",
+          "aria-label": "账号菜单",
+          "aria-haspopup": "true",
+        },
+      });
+      var navAvatarCls = "avatar" + (role === "admin" ? " avatar-admin" : "");
       if (avatarUrl) {
-        trigger.innerHTML = '<span class="avatar avatar-img-wrap"><img class="avatar-img" src="' + avatarUrl + '" alt="" /></span> ' + displayName;
-      } else if (displayName) {
-        trigger.innerHTML = '<span class="avatar">' + API.avatarChar(displayName) + '</span> ' + displayName;
+        trigger.innerHTML =
+          '<span class="' + navAvatarCls + ' avatar-img-wrap">' +
+          '<img class="avatar-img" src="' + avatarUrl + '" alt="用户头像" />' +
+          "</span>";
       } else {
-        trigger.textContent = "已登录";
+        trigger.innerHTML =
+          '<span class="' + navAvatarCls + '">' +
+          API.avatarChar(displayName || "U") + "</span>";
       }
 
       var menu = API.el("div", { class: "user-badge-menu" });
@@ -87,7 +98,7 @@
       var postBtn = API.el("a", {
         class: "btn btn-primary btn-sm",
         attrs: { href: "javascript:void(0)" },
-      }, ["✍", " 发帖"]);
+      }, ["✍ ", API.el("span", { class: "btn-text" }, ["发帖"])]);
       postBtn.addEventListener("click", openPostModal);
       actions.appendChild(postBtn);
 

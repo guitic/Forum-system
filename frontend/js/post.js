@@ -217,16 +217,35 @@
     var homeLink = API.el("a", {
       class: "btn btn-ghost btn-sm",
       attrs: { href: "index.html" },
-    }, ["←", " 首页"]);
+    }, ["← ", API.el("span", { class: "btn-text" }, ["首页"])]);
     actions.appendChild(homeLink);
 
     if (API.isLoggedIn()) {
       var me = getCurrentUser();
       var wrap = API.el("div", { class: "user-badge-wrap" });
 
-      var trigger = API.el("div", { class: "user-badge user-badge-trigger" });
-      trigger.appendChild(renderAvatar(me, { base: "avatar", admin: me.role === "admin" }));
-      if (me.displayName) trigger.appendChild(document.createTextNode(" " + me.displayName));
+      // 导航区仅显示头像，用户名收入下拉菜单头部。
+      // 注意：getCurrentUser() 返回驼峰字段（avatarUrl/displayName），
+      // 不能直接传给读下划线字段的 renderAvatar，此处与 index.js 统一构造。
+      var trigger = API.el("div", {
+        class: "user-badge user-badge-trigger",
+        attrs: {
+          title: me.displayName || "账号菜单",
+          "aria-label": "账号菜单",
+          "aria-haspopup": "true",
+        },
+      });
+      var navAvatarCls = "avatar" + (me.role === "admin" ? " avatar-admin" : "");
+      if (me.avatarUrl) {
+        trigger.innerHTML =
+          '<span class="' + navAvatarCls + ' avatar-img-wrap">' +
+          '<img class="avatar-img" src="' + escapeHtml(me.avatarUrl) + '" alt="用户头像" />' +
+          "</span>";
+      } else {
+        trigger.innerHTML =
+          '<span class="' + navAvatarCls + '">' +
+          API.avatarChar(me.displayName || "U") + "</span>";
+      }
       wrap.appendChild(trigger);
 
       var menu = API.el("div", { class: "user-badge-menu" });
