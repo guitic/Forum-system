@@ -5,6 +5,7 @@
 初始化 Flask 应用、数据库、蓝图，并注册统一错误处理。
 """
 
+import logging
 import os
 import sys
 
@@ -42,7 +43,6 @@ def create_app(config_obj=None):
     try:
         os.makedirs(config.UPLOAD_DIR, exist_ok=True)
     except OSError as exc:
-        import logging
         logging.getLogger("forum-api").warning(
             "创建上传目录失败 %s: %s", config.UPLOAD_DIR, exc
         )
@@ -81,7 +81,6 @@ def create_app(config_obj=None):
     @app.errorhandler(Exception)
     def handle_exception(e):
         # 生产环境不暴露异常详情
-        import logging
         logging.getLogger("forum-api").error(
             "Unhandled exception: %s", str(e), exc_info=True
         )
