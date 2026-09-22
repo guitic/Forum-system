@@ -3,12 +3,16 @@
 回复相关路由（V3 新增）。
 
 包含删除回复接口，级联删除该回复及其所有子孙回复。
+编辑回复接口（模块 1 新增）：PUT /api/replies/{reply_id}，写入 updated_at。
 """
 
-from flask import Blueprint, jsonify
+from datetime import datetime, timezone
 
-from models import Reply, db
-from routes.posts import require_auth
+from flask import Blueprint, jsonify, request
+
+from config import config
+from models import Post, Reply, db
+from routes.posts import _reply_node, require_auth
 
 replies_bp = Blueprint("replies", __name__, url_prefix="/api/replies")
 
@@ -29,6 +33,52 @@ def _collect_descendant_ids(root_id):
             to_delete.add(kid.id)
             frontier.append(kid.id)
     return to_delete
+
+
+@replies_bp.put("/<int:reply_id>")
+@require_auth
+def update_reply(reply_id, current_user):
+    """
+    PUT /api/replies/{reply_id}
+
+    编辑回复内容。
+    仅回复作者本人或管理员 (role='admin') 可编辑。
+
+    Header: Authorization: Bearer <token>
+    Body: {"content": "..."}
+    响应: 更新后的完整回复节点（含层级字段与 updated_at）
+    """
+    reply = Reply.query.get(reply_id)
+    if not reply:
+        return jsonify({"error": "回复不存在"}), 404
+
+    is_owner = reply.user_id == current_user.id
+    is_admin = current_user.role == "admin"
+    if not (is_owner or is_admin):
+        return jsonify({"error": "无权编辑该回复"}), 403
+
+    data = request.get_json(silent=True) or {}
+    content = (data.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "回复内容不能为空"}), 400
+    if len(content) > config.MAX_REPLY_LENGTH:
+        return jsonify({
+            "error": f"回复长度不能超过 {config.MAX_REPLY_LENGTH} 个字符"
+        }), 400
+
+    try:
+        reply.content = content
+        reply.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "编辑回复失败"}), 500
+
+    post = Post.query.get(reply.post_id)
+    post_author_id = post.user_id if post else None
+    return jsonify(
+        _reply_node(reply, config.MAX_REPLY_DEPTH, post_author_id)
+    ), 200
 
 
 @replies_bp.delete("/<int:reply_id>")

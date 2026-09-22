@@ -2227,3 +2227,100 @@ textarea.form-control.md-editor {
     font-size: 12px;
   }
 }
+
+/* ==========================================================================
+   模块 1：编辑帖子与回复
+   ========================================================================== */
+
+/* ---------- 帖子头部：标题/元信息居左，操作按钮（编辑/删除）右上角 ---------- */
+.post-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.post-detail-head-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.post-actions-bar {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* ---------- 编辑标记：灰色小字，与正文区分 ---------- */
+.edited-mark {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--color-text-light);
+}
+
+.reply-edited-mark {
+  margin-top: 4px;
+}
+
+/* ---------- 帖子编辑表单 ---------- */
+.edit-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.edit-form .form-group {
+  margin-bottom: 14px;
+}
+
+.edit-form-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.edit-form-hint {
+  font-size: 12px;
+  color: var(--color-text-light);
+  margin-right: auto;
+}
+
+.edit-error {
+  font-size: 12.5px;
+  color: var(--color-danger, #dc2626);
+  min-height: 1em;
+}
+
+/* ---------- 回复编辑表单 ---------- */
+.reply-edit-form {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.reply-edit-textarea {
+  min-height: 90px;
+  font-size: 13.5px;
+}
+
+.reply-edit-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 响应式 ---------- */
+@media (max-width: 640px) {
+  .post-detail-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .post-actions-bar {
+    margin-left: 0;
+  }
+}

@@ -1,11 +1,11 @@
 {
-  "totalRuns": 0,
-  "totalRawTokens": 0,
-  "totalCompressedTokens": 0,
+  "totalRuns": 1,
+  "totalRawTokens": 1084,
+  "totalCompressedTokens": 1084,
   "totalSavedTokens": 0,
   "averageSavingsPercent": 0,
-  "firstRunAt": null,
-  "lastRunAt": null,
+  "firstRunAt": "2026-09-22T12:52:53.322Z",
+  "lastRunAt": "2026-09-22T12:52:53.322Z",
   "records": [
     {
       "timestamp": "2026-09-20T14:00:28.409Z",
@@ -15,9 +15,45 @@
       "savingsPercent": 0,
       "source": "preview_context",
       "kind": "tokens-not-fidelity"
+    },
+    {
+      "timestamp": "2026-09-22T12:40:53.421Z",
+      "query": "论坛系统已实现的功能模块，包括用户认证、发帖回帖、评论、点赞、收藏、通知、后台管理等",
+      "rawTokens": 473,
+      "compressedTokens": 473,
+      "savingsPercent": 0,
+      "source": "preview_context",
+      "kind": "tokens-not-fidelity"
+    },
+    {
+      "timestamp": "2026-09-22T12:52:53.322Z",
+      "query": "实现帖子与回复的编辑功能：数据库 posts/replies 表结构、后端 API 路由(app.py)、require_auth 中间件、owner/admin 权限判断模式、前端帖子详情页与回复渲染、API 统一响应规范",
+      "rawTokens": 1084,
+      "compressedTokens": 1084,
+      "savingsPercent": 0,
+      "source": "preview_context",
+      "kind": "tokens-not-fidelity"
     }
   ],
   "recentRecords": [
+    {
+      "timestamp": "2026-09-22T12:52:53.322Z",
+      "query": "实现帖子与回复的编辑功能：数据库 posts/replies 表结构、后端 API 路由(app.py)、require_auth 中间件、owner/admin 权限判断模式、前端帖子详情页与回复渲染、API 统一响应规范",
+      "rawTokens": 1084,
+      "compressedTokens": 1084,
+      "savingsPercent": 0,
+      "source": "preview_context",
+      "kind": "tokens-not-fidelity"
+    },
+    {
+      "timestamp": "2026-09-22T12:40:53.421Z",
+      "query": "论坛系统已实现的功能模块，包括用户认证、发帖回帖、评论、点赞、收藏、通知、后台管理等",
+      "rawTokens": 473,
+      "compressedTokens": 473,
+      "savingsPercent": 0,
+      "source": "preview_context",
+      "kind": "tokens-not-fidelity"
+    },
     {
       "timestamp": "2026-09-20T14:00:28.409Z",
       "query": "前端文件结构 index.html post.html auth.html profile.html css/js 技术点",
