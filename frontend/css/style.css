@@ -2324,3 +2324,259 @@ textarea.form-control.md-editor {
     margin-left: 0;
   }
 }
+
+/* ==========================================================================
+   图片上传模块
+   ========================================================================== */
+
+.img-up {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--color-bg-soft);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.img-up-dragover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.img-up-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.img-up-btn {
+  padding: 4px 10px;
+  font-size: 12.5px;
+}
+
+.img-up-hint {
+  font-size: 12px;
+  color: var(--color-text-light);
+}
+
+.img-up-input {
+  display: none;
+}
+
+.img-up-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.img-up-item {
+  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  aspect-ratio: 1 / 1;
+  cursor: grab;
+}
+
+.img-up-item.img-up-dragging {
+  opacity: 0.4;
+}
+
+.img-up-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.img-up-overlay {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 4px 6px 6px;
+  background: linear-gradient(transparent, rgba(15, 23, 42, 0.72));
+  color: #fff;
+}
+
+.img-up-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+
+.img-up-progress-fill {
+  height: 100%;
+  width: 0;
+  background: var(--color-primary-light, #60a5fa);
+  transition: width 0.15s ease;
+}
+
+.img-up-status {
+  font-size: 11px;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.img-up-item.img-up-done .img-up-progress-fill {
+  background: #22c55e;
+}
+
+.img-up-item.img-up-error {
+  border-color: var(--color-danger, #dc2626);
+}
+
+.img-up-actions {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.img-up-item:hover .img-up-actions,
+.img-up-item:focus-within .img-up-actions {
+  opacity: 1;
+}
+
+.img-up-act {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: rgba(15, 23, 42, 0.62);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.img-up-act:hover {
+  background: rgba(15, 23, 42, 0.85);
+}
+
+.img-up-act-danger:hover {
+  background: var(--color-danger, #dc2626);
+}
+
+.img-up-retry {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 8px;
+  border: none;
+  background: rgba(220, 38, 38, 0.78);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.img-up-retry.hidden {
+  display: none;
+}
+
+/* 紧凑模式（内联回复） */
+.img-up-compact {
+  margin-top: 8px;
+  padding: 8px 10px;
+}
+
+.img-up-compact .img-up-grid {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+}
+
+/* ---------- 正文图片：响应式展示 ---------- */
+.md-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  margin: 6px 0;
+  cursor: zoom-in;
+  display: block;
+}
+
+/* ---------- Lightbox 大图预览 ---------- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.88);
+  cursor: zoom-out;
+}
+
+.lightbox.hidden {
+  display: none;
+}
+
+.lightbox-img {
+  max-width: 92vw;
+  max-height: 88vh;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.lightbox-hint {
+  position: absolute;
+  bottom: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  pointer-events: none;
+}
+
+/* ---------- 图片上传响应式 ---------- */
+@media (max-width: 640px) {
+  .img-up-grid {
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  }
+
+  .img-up-actions {
+    opacity: 1; /* 触屏设备无 hover，始终显示操作按钮 */
+  }
+
+  .img-up-hint {
+    width: 100%;
+  }
+}

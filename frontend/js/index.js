@@ -25,6 +25,9 @@
   // DOM 引用（在 DOMContentLoaded 后绑定）
   var dom = {};
 
+  // 发帖图片上传器（image-upload.js 工厂创建）
+  var postUploader = null;
+
   /* ------------------------------------------------------------------------
    * 头部导航渲染
    * ---------------------------------------------------------------------- */
@@ -340,6 +343,7 @@
     // 清空表单
     dom.postTitle.value = "";
     dom.postContent.value = "";
+    if (postUploader) postUploader.reset();
     clearFormErrors();
     backdrop.classList.remove("hidden");
     setTimeout(function () { dom.postTitle.focus(); }, 50);
@@ -347,6 +351,8 @@
 
   function closePostModal() {
     if (dom.postModal) dom.postModal.classList.add("hidden");
+    // 关闭弹窗即放弃未完成的上传与已选图片
+    if (postUploader) postUploader.reset();
   }
 
   function clearFormErrors() {
@@ -374,7 +380,13 @@
     btn.disabled = true;
     btn.textContent = "发布中…";
     try {
-      await API.createPost(title, content);
+      // 若有图片仍在上传，等待其完成（成功或失败）后再提交，
+      // 确保正文中的图片链接完整；等待期间不阻塞页面其他交互
+      if (postUploader && postUploader.hasPending()) {
+        btn.textContent = "等待图片上传…";
+        await postUploader.waitAll();
+      }
+      await API.createPost(title, dom.postContent.value || content);
       showToast("帖子发布成功！", "success");
       closePostModal();
       // 重置分页到第 1 页，确保能看到新帖
@@ -461,6 +473,16 @@
             e.preventDefault();
             submitPost();
           }
+        });
+      }
+
+      // 图片上传器（发帖）
+      var postImagesEl = document.getElementById("post-images");
+      if (postImagesEl && global.ForumImageUpload) {
+        postUploader = global.ForumImageUpload.createUploader({
+          container: postImagesEl,
+          textarea: dom.postContent,
+          onToast: showToast,
         });
       }
     }

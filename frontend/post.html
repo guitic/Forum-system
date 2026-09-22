@@ -9,7 +9,7 @@
   <meta name="description" content="帖子详情 - 技术交流论坛" />
   <title>帖子详情 - 技术论坛</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
-  <link rel="stylesheet" href="css/style.css?v=11" />
+  <link rel="stylesheet" href="css/style.css?v=12" />
   <!-- marked.js - Markdown 解析 -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- highlight.js - 代码高亮（浏览器预构建版，含所有常用语言） -->
@@ -116,8 +116,10 @@
                   </div>
                   <div class="form-error">请输入回复内容</div>
                 </div>
+                <!-- 图片上传区（一级回复） -->
+                <div id="reply-images"></div>
                 <div class="reply-form-actions">
-                  <span class="reply-form-hint">一级回复 · 支持 Markdown</span>
+                  <span class="reply-form-hint">一级回复 · 支持 Markdown 与图片</span>
                   <button id="reply-submit-btn" class="btn btn-primary">发布回复</button>
                 </div>
               </div>
@@ -156,6 +158,7 @@
 
   <!-- ==================== Scripts ==================== -->
   <script src="js/api.js?v=7"></script>
-  <script src="js/post.js?v=12"></script>
+  <script src="js/image-upload.js?v=2"></script>
+  <script src="js/post.js?v=13"></script>
 </body>
 </html>
