@@ -222,29 +222,34 @@
 
     if (API.isLoggedIn()) {
       var me = getCurrentUser();
-      if (me.displayName) {
-        var badge = API.el("span", { class: "user-badge" });
-        badge.addEventListener("click", function () {
-          window.location.href = "profile.html";
-        });
-        badge.style.cursor = "pointer";
-        badge.appendChild(renderAvatar(me, { base: "avatar", admin: me.role === "admin" }));
-        badge.appendChild(document.createTextNode(" " + me.displayName));
-        actions.appendChild(badge);
-      }
+      var wrap = API.el("div", { class: "user-badge-wrap" });
 
-      var profileBtn = API.el("a", {
-        class: "btn btn-ghost btn-sm",
+      var trigger = API.el("div", { class: "user-badge user-badge-trigger" });
+      trigger.appendChild(renderAvatar(me, { base: "avatar", admin: me.role === "admin" }));
+      if (me.displayName) trigger.appendChild(document.createTextNode(" " + me.displayName));
+      wrap.appendChild(trigger);
+
+      var menu = API.el("div", { class: "user-badge-menu" });
+      var headerLine = API.el("div", { class: "user-badge-menu-header" });
+      headerLine.textContent = (me.displayName || me.username || "已登录") + (me.role === "admin" ? " · ADMIN" : "");
+      menu.appendChild(headerLine);
+
+      var profileItem = API.el("a", {
+        class: "user-badge-menu-item",
         attrs: { href: "profile.html" },
-      }, ["⚙", " 我的"]);
-      actions.appendChild(profileBtn);
+      }, ["⚙", " 个人中心"]);
+      menu.appendChild(profileItem);
 
-      var logoutBtn = API.el("a", {
-        class: "btn btn-ghost btn-sm",
+      var logoutItem = API.el("a", {
+        class: "user-badge-menu-item user-badge-menu-danger",
         attrs: { href: "javascript:void(0)" },
-      }, ["登出"]);
-      logoutBtn.addEventListener("click", handleLogout);
-      actions.appendChild(logoutBtn);
+      }, ["🚪", " 登出"]);
+      logoutItem.addEventListener("click", handleLogout);
+      menu.appendChild(logoutItem);
+
+      wrap.appendChild(menu);
+      API.setupBadgeDropdown(wrap);
+      actions.appendChild(wrap);
     } else {
       var loginBtn = API.el("a", {
         class: "btn btn-primary btn-sm",
