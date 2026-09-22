@@ -86,10 +86,8 @@ def update_profile(current_user):
             return jsonify({
                 "error": f"昵称长度不能超过 {config.MAX_NICKNAME_LENGTH} 个字符"
             }), 400
-        # 不允许纯空白
-        if nickname and not nickname.strip():
-            return jsonify({"error": "昵称不能为纯空白字符"}), 400
-        current_user.nickname = nickname if nickname else None
+        # 空串（含纯空白输入 strip 后）视为清除昵称
+        current_user.nickname = nickname or None
 
     # 简介校验
     if bio is not None:
