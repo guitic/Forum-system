@@ -1925,6 +1925,93 @@ textarea.form-control.md-editor {
   height: 22px;
 }
 
+/* ---------- 账号下拉菜单 ---------- */
+.user-badge-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.user-badge-trigger {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.user-badge-trigger:hover {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.user-badge-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 180px;
+  padding: 6px 0;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12), 0 2px 6px rgba(15, 23, 42, 0.06);
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 1000;
+}
+
+/* 小三角指向 */
+.user-badge-menu::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: 18px;
+  width: 10px;
+  height: 10px;
+  background: var(--color-surface, #fff);
+  border-left: 1px solid var(--color-border, #e5e7eb);
+  border-top: 1px solid var(--color-border, #e5e7eb);
+  transform: rotate(45deg);
+}
+
+.user-badge-menu.is-open {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.user-badge-menu-header {
+  padding: 6px 14px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted, #6b7280);
+  border-bottom: 1px solid var(--color-border, #e5e7eb);
+  margin-bottom: 4px;
+}
+
+.user-badge-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13.5px;
+  color: var(--color-text, #111827);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.user-badge-menu-item:hover {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--color-primary, #2563eb);
+}
+
+.user-badge-menu-danger {
+  color: #dc2626;
+}
+
+.user-badge-menu-danger:hover {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+}
+
 /* ---------- 主贴卡片：楼主标识（主色左边框） ---------- */
 .post-detail.post-op {
   border-left: 3px solid var(--color-primary);

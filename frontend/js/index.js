@@ -41,35 +41,48 @@
       var username = "";
       var nickname = "";
       var avatarUrl = "";
+      var role = "";
       try {
         username = localStorage.getItem("username") || "";
         nickname = localStorage.getItem("nickname") || "";
         avatarUrl = localStorage.getItem("avatar_url") || "";
+        role = localStorage.getItem("role") || "";
       } catch (e) { /* ignore */ }
       var displayName = nickname || username;
 
-      var badge = API.el("span", {
-        class: "user-badge",
-      });
-      badge.addEventListener("click", function () {
-        window.location.href = "profile.html";
-      });
-      badge.style.cursor = "pointer";
+      // 账号 + 下拉菜单（hover 显示）
+      var wrap = API.el("div", { class: "user-badge-wrap" });
+      var trigger = API.el("div", { class: "user-badge user-badge-trigger" });
       if (avatarUrl) {
-        badge.innerHTML = '<span class="avatar avatar-img-wrap"><img class="avatar-img" src="' + avatarUrl + '" alt="" /></span> ' + displayName;
+        trigger.innerHTML = '<span class="avatar avatar-img-wrap"><img class="avatar-img" src="' + avatarUrl + '" alt="" /></span> ' + displayName;
       } else if (displayName) {
-        badge.innerHTML = '<span class="avatar">' + API.avatarChar(displayName) + '</span> ' + displayName;
+        trigger.innerHTML = '<span class="avatar">' + API.avatarChar(displayName) + '</span> ' + displayName;
       } else {
-        badge.textContent = "已登录";
+        trigger.textContent = "已登录";
       }
-      actions.appendChild(badge);
 
-      // 个人中心按钮
-      var profileBtn = API.el("a", {
-        class: "btn btn-ghost btn-sm",
+      var menu = API.el("div", { class: "user-badge-menu" });
+      var headerLine = API.el("div", { class: "user-badge-menu-header" });
+      headerLine.textContent = displayName + (role === "admin" ? " · ADMIN" : "");
+      menu.appendChild(headerLine);
+
+      var profileItem = API.el("a", {
+        class: "user-badge-menu-item",
         attrs: { href: "profile.html" },
-      }, ["⚙", " 我的"]);
-      actions.appendChild(profileBtn);
+      }, ["⚙", " 个人中心"]);
+      menu.appendChild(profileItem);
+
+      var logoutItem = API.el("a", {
+        class: "user-badge-menu-item user-badge-menu-danger",
+        attrs: { href: "javascript:void(0)" },
+      }, ["🚪", " 登出"]);
+      logoutItem.addEventListener("click", handleLogout);
+      menu.appendChild(logoutItem);
+
+      wrap.appendChild(trigger);
+      wrap.appendChild(menu);
+      API.setupBadgeDropdown(wrap);
+      actions.appendChild(wrap);
 
       var postBtn = API.el("a", {
         class: "btn btn-primary btn-sm",
@@ -77,13 +90,6 @@
       }, ["✍", " 发帖"]);
       postBtn.addEventListener("click", openPostModal);
       actions.appendChild(postBtn);
-
-      var logoutBtn = API.el("a", {
-        class: "btn btn-ghost btn-sm",
-        attrs: { href: "javascript:void(0)" },
-      }, ["登出"]);
-      logoutBtn.addEventListener("click", handleLogout);
-      actions.appendChild(logoutBtn);
 
       if (pagePostBtn) pagePostBtn.classList.remove("hidden");
     } else {
@@ -410,6 +416,13 @@
     }
 
     renderNav();
+
+    // 未登录：直接跳登录页，登录后带 redirect 回到当前页
+    if (!API.isLoggedIn()) {
+      var currentUrl = window.location.pathname + window.location.search + window.location.hash;
+      window.location.replace("auth.html?redirect=" + encodeURIComponent(currentUrl));
+      return;
+    }
 
     // 模态框事件
     var openBtn = document.getElementById("open-post-btn");

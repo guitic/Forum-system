@@ -33,12 +33,6 @@
     if (!actions) return;
     actions.innerHTML = "";
 
-    var homeBtn = API.el("a", {
-      class: "btn btn-ghost btn-sm",
-      attrs: { href: "index.html" },
-    }, ["←", " 首页"]);
-    actions.appendChild(homeBtn);
-
     if (API.isLoggedIn()) {
       var logoutBtn = API.el("a", {
         class: "btn btn-ghost btn-sm",

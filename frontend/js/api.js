@@ -783,6 +783,40 @@
   };
 
   /* ------------------------------------------------------------------------
+   * 账号下拉悬停交互
+   * ---------------------------------------------------------------------- */
+  API.setupBadgeDropdown = function (wrap) {
+    if (!wrap || !wrap.classList) return;
+    var MENU_HIDE_DELAY = 250; // 毫秒，鼠标离开后延迟隐藏，容忍小抖动
+    var pending = null;
+    var menu = wrap.querySelector(".user-badge-menu");
+    if (!menu) return;
+
+    function show() {
+      if (pending) { clearTimeout(pending); pending = null; }
+      menu.classList.add("is-open");
+    }
+    function hideSoon() {
+      if (pending) return;
+      pending = setTimeout(function () {
+        pending = null;
+        menu.classList.remove("is-open");
+      }, MENU_HIDE_DELAY);
+    }
+
+    wrap.addEventListener("mouseenter", show);
+    wrap.addEventListener("mouseleave", hideSoon);
+    // 点击下拉项（登出）时，可能在处理完后需要主动关闭；点其他 item 自然跳转
+    menu.addEventListener("click", function (e) {
+      var target = e.target && e.target.closest ? e.target.closest("a") : null;
+      if (target && target.getAttribute("href") === "javascript:void(0)") {
+        // 登出按钮：等 handleLogout 执行完再关闭，视觉更自然
+        setTimeout(function () { menu.classList.remove("is-open"); }, 150);
+      }
+    });
+  };
+
+  /* ------------------------------------------------------------------------
    * 暴露到全局
    * ---------------------------------------------------------------------- */
   global.ForumAPI = API;
