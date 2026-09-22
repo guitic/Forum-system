@@ -387,8 +387,10 @@ users (1) ──── (N) posts  (1) ──── (N) replies
 | 表 | 主要字段 | 索引 |
 | :--- | :--- | :--- |
 | `users` | id, username(unique), password_hash, role, nickname, bio, avatar_url, created_at | uk_username, idx_username |
-| `posts` | id, user_id(FK), title, content, created_at | fk_posts_user |
-| `replies` | id, post_id(FK), user_id(FK), content, parent_id(FK), root_id(FK), created_at | fk_replies_post, fk_replies_user, idx_post_id, idx_reply_parent, idx_reply_root |
+| `posts` | id, user_id(FK), title, content, created_at, updated_at | fk_posts_user |
+| `replies` | id, post_id(FK), user_id(FK), content, parent_id(FK), root_id(FK), created_at, updated_at | fk_replies_post, fk_replies_user, idx_post_id, idx_reply_parent, idx_reply_root |
+
+`updated_at` 为模块 1(编辑功能)新增字段,`DATETIME` 允许为 `NULL`,`NULL` 表示内容从未被编辑;迁移脚本见 [database/migration_edit.sql](database/migration_edit.sql)。
 
 外键级联策略:posts→replies 为 `ON DELETE CASCADE`;replies 自引用 `parent_id` 为 `CASCADE`,`root_id` 为 `SET NULL`。
 
@@ -403,8 +405,10 @@ users (1) ──── (N) posts  (1) ──── (N) replies
 | GET | `/api/posts?page=&limit=` | ❌ | 帖子列表分页(默认 20 条/页,最大 100) |
 | GET | `/api/posts/{id}` | ❌ | 帖子详情 + `replies`(扁平)+ `reply_tree`(嵌套)+ `reply_count` |
 | POST | `/api/posts` | ✅ Bearer | 发布新帖 |
+| PUT | `/api/posts/{id}` | ✅ Bearer | 编辑帖子(仅作者/admin);Body `{title, content}`;写入 `updated_at`,返回更新后的完整帖子 |
 | POST | `/api/posts/{id}/replies` | ✅ Bearer | 发布回复;Body 可选 `parent_id` 实现楼中楼 |
 | DELETE | `/api/posts/{id}` | ✅ Bearer | 删除帖子(仅作者/admin),级联删 replies |
+| PUT | `/api/replies/{reply_id}` | ✅ Bearer | 编辑回复(仅作者/admin);Body `{content}`;写入 `updated_at`,返回更新后的完整回复节点 |
 | DELETE | `/api/replies/{reply_id}` | ✅ Bearer | 删除回复(仅作者/admin),级联删子孙 |
 | GET | `/api/user/profile` | ✅ Bearer | 获取个人资料 |
 | PUT | `/api/user/profile` | ✅ Bearer | 更新昵称与简介 |
@@ -439,6 +443,7 @@ users (1) ──── (N) posts  (1) ──── (N) replies
   "title": "...",
   "content": "# Hello\n\n内容",
   "created_at": "2026-09-22T10:00:00+00:00",
+  "updated_at": "2026-09-22T13:08:15+00:00",
   "reply_count": 5,
   "reply_tree": [
     {
@@ -447,6 +452,7 @@ users (1) ──── (N) posts  (1) ──── (N) replies
       "root_id": 10,
       "parent_id": null,
       "is_author": true,
+      "updated_at": null,
       "reply_count": 2,
       "children": [
         { "id": 11, "depth": 1, "parent_id": 10, "root_id": 10, "children": [ /* ... */ ] }
@@ -456,6 +462,28 @@ users (1) ──── (N) posts  (1) ──── (N) replies
   "replies": [ /* 扁平列表,字段同 tree 节点 */ ]
 }
 ```
+
+> `updated_at` 为 `null` 表示内容从未编辑;非空时前端在内容下方显示「编辑于 X 前」灰色小字。
+
+**编辑帖子响应**(`PUT /api/posts/{id}`):
+
+```json
+{
+  "message": "编辑成功",
+  "id": 1,
+  "user_id": 1,
+  "username": "lzuser0001",
+  "display_name": "LZ",
+  "title": "新标题",
+  "content": "新内容",
+  "created_at": "2026-09-22T10:00:00+00:00",
+  "updated_at": "2026-09-22T13:08:15+00:00"
+}
+```
+
+**编辑回复响应**(`PUT /api/replies/{reply_id}`):返回更新后的完整回复节点,字段同 `reply_tree` 节点(含 `depth` / `parent_id` / `root_id` / `updated_at`)。
+
+错误响应:未登录 `401`;非作者且非管理员 `403`;标题/内容为空或超长 `400`;资源不存在 `404`。
 
 ---
 

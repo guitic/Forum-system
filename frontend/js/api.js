@@ -309,6 +309,37 @@
   };
 
   /**
+   * 编辑帖子（模块 1 新增）
+   * 仅帖子作者或管理员可调用；成功后服务端写入 updated_at。
+   * @param {number|string} id
+   * @param {string} title
+   * @param {string} content
+   * @returns {Promise<Object>} 更新后的完整帖子信息
+   */
+  API.updatePost = function (id, title, content) {
+    return request("/api/posts/" + encodeURIComponent(id), {
+      method: "PUT",
+      body: { title: title, content: content },
+      auth: true,
+    });
+  };
+
+  /**
+   * 编辑回复（模块 1 新增）
+   * 仅回复作者或管理员可调用；成功后服务端写入 updated_at。
+   * @param {number|string} replyId
+   * @param {string} content
+   * @returns {Promise<Object>} 更新后的完整回复节点
+   */
+  API.updateReply = function (replyId, content) {
+    return request("/api/replies/" + encodeURIComponent(replyId), {
+      method: "PUT",
+      body: { content: content },
+      auth: true,
+    });
+  };
+
+  /**
    * 删除回复（V3 新增）
    * 仅回复作者或管理员可调用；服务端会级联删除其所有子孙回复。
    * @param {number|string} replyId

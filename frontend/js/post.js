@@ -8,6 +8,7 @@
    - V3：内联回复表单（回复某条回复）
    - V3：删除回复（作者 / 管理员，级联删除子孙）
    - V3：角色徽标 —— 楼主（帖子作者）/ ADMIN
+   - 模块 1：编辑帖子 / 回复（作者或管理员，内联编辑 + 编辑标记）
    - 回复表单（需登录）
    - 删除帖子（需确认弹窗，仅发帖人或 admin）
    ========================================================================== */
@@ -336,11 +337,18 @@
     metaEl.appendChild(API.el("span", { class: "meta-dot", text: "·" }));
     metaEl.appendChild(API.el("span", { text: replyCount + " 条回复" }));
 
-    // actions：楼主或管理员可删除
+    // actions：楼主或管理员可编辑 / 删除
     actionsEl.innerHTML = "";
-    var canDelete = API.isLoggedIn() &&
+    var canModify = API.isLoggedIn() &&
       (isCurrentUser(post.username) || isCurrentUserAdmin());
-    if (canDelete) {
+    if (canModify) {
+      var editBtn = API.el("button", {
+        class: "btn btn-ghost btn-sm post-edit-btn",
+        attrs: { type: "button" },
+      }, ["✏️", " 编辑"]);
+      editBtn.addEventListener("click", openPostEditor);
+      actionsEl.appendChild(editBtn);
+
       var delBtn = API.el("button", { class: "btn btn-danger btn-sm" }, ["🗑", " 删除"]);
       delBtn.addEventListener("click", confirmDeletePost);
       actionsEl.appendChild(delBtn);
@@ -348,6 +356,104 @@
 
     // 渲染内容
     contentEl.innerHTML = renderMarkdown(post.content || "");
+
+    // 编辑标记：updated_at 非空时显示「编辑于 X 前」
+    renderPostEditedMark(post.updated_at);
+  }
+
+  /**
+   * 渲染帖子编辑标记（模块 1）
+   * @param {string|number|Date|null} updatedAt
+   */
+  function renderPostEditedMark(updatedAt) {
+    var mark = dom.postEditedMark;
+    if (!mark) return;
+    if (updatedAt) {
+      mark.textContent = "编辑于 " + API.formatTime(updatedAt);
+      mark.title = "最后编辑于 " + API.formatDateTime(updatedAt);
+      mark.classList.remove("hidden");
+    } else {
+      mark.textContent = "";
+      mark.classList.add("hidden");
+    }
+  }
+
+  /* ------------------------------------------------------------------------
+   * 帖子内联编辑（模块 1：作者 / 管理员）
+   * ---------------------------------------------------------------------- */
+  var postEditorOpen = false;
+
+  /** 打开帖子编辑器：展示态切换为编辑态，预填当前标题与内容 */
+  function openPostEditor() {
+    if (!currentPost || postEditorOpen) return;
+    if (!API.isLoggedIn()) { goLogin(); return; }
+
+    postEditorOpen = true;
+    setPostEditError("");
+    dom.postTitle.classList.add("hidden");
+    dom.postContent.classList.add("hidden");
+    if (dom.postEditedMark) dom.postEditedMark.classList.add("hidden");
+    dom.postEditForm.classList.remove("hidden");
+
+    dom.postEditTitle.value = currentPost.title || "";
+    dom.postEditContent.value = currentPost.content || "";
+    try { dom.postEditTitle.focus(); } catch (e) { /* ignore */ }
+  }
+
+  /** 关闭帖子编辑器：恢复展示态（不重新拉取，内容未变） */
+  function closePostEditor() {
+    if (!postEditorOpen) return;
+    postEditorOpen = false;
+    setPostEditError("");
+    dom.postEditForm.classList.add("hidden");
+    dom.postTitle.classList.remove("hidden");
+    dom.postContent.classList.remove("hidden");
+    // 编辑标记按当前数据恢复显示
+    if (currentPost) renderPostEditedMark(currentPost.updated_at);
+  }
+
+  function setPostEditError(msg) {
+    if (dom.postEditError) dom.postEditError.textContent = msg || "";
+  }
+
+  /** 提交帖子编辑；失败时保留编辑内容并显示错误 */
+  async function savePostEdit() {
+    if (!currentPost || !postEditorOpen) return;
+    var title = (dom.postEditTitle.value || "").trim();
+    var content = (dom.postEditContent.value || "").trim();
+
+    if (!title) {
+      setPostEditError("标题不能为空");
+      dom.postEditTitle.focus();
+      return;
+    }
+    if (!content) {
+      setPostEditError("内容不能为空");
+      dom.postEditContent.focus();
+      return;
+    }
+    setPostEditError("");
+
+    var btn = dom.postEditSaveBtn;
+    btn.disabled = true;
+    btn.textContent = "保存中…";
+    try {
+      var data = await API.updatePost(currentPost.id, title, content);
+      showToast("帖子已更新", "success");
+      postEditorOpen = false;
+      // 用服务端返回的最新数据重渲染展示态（含 updated_at 编辑标记）
+      Object.assign(currentPost, data);
+      dom.postEditForm.classList.add("hidden");
+      dom.postTitle.classList.remove("hidden");
+      dom.postContent.classList.remove("hidden");
+      renderPost(currentPost);
+    } catch (err) {
+      setPostEditError(err.message || "保存失败，请重试");
+      showToast(err.message || "保存失败", "error");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "保存";
+    }
   }
 
   /* ------------------------------------------------------------------------
@@ -443,7 +549,17 @@
     contentEl.innerHTML = renderMarkdown(node.content || "");
     body.appendChild(contentEl);
 
-    // 操作栏：回复（所有人，未登录跳登录）/ 删除（作者或管理员）
+    // 编辑标记（模块 1）：updated_at 非空时显示「编辑于 X 前」
+    if (node.updated_at) {
+      var editedMark = API.el("div", {
+        class: "edited-mark reply-edited-mark",
+        attrs: { title: "最后编辑于 " + API.formatDateTime(node.updated_at) },
+        text: "编辑于 " + API.formatTime(node.updated_at),
+      });
+      body.appendChild(editedMark);
+    }
+
+    // 操作栏：回复（所有人，未登录跳登录）/ 编辑（作者或管理员）/ 删除（作者或管理员）
     var actions = API.el("div", { class: "reply-actions" });
     var replyBtn = API.el("button", {
       class: "btn btn-ghost btn-sm reply-action-btn",
@@ -457,6 +573,13 @@
 
     if (API.isLoggedIn() &&
         (isCurrentUser(node.username) || isCurrentUserAdmin())) {
+      var editBtn = API.el("button", {
+        class: "btn btn-ghost btn-sm reply-action-btn reply-action-edit",
+        attrs: { type: "button" },
+      }, ["✏️", " 编辑"]);
+      editBtn.addEventListener("click", function () { openReplyEditor(node); });
+      actions.appendChild(editBtn);
+
       var delBtn = API.el("button", {
         class: "btn btn-ghost btn-sm reply-action-btn reply-action-delete",
         attrs: { type: "button" },
@@ -563,6 +686,152 @@
   function closeInlineReply() {
     var existed = document.querySelector(".inline-reply-form");
     if (existed && existed.parentNode) existed.parentNode.removeChild(existed);
+  }
+
+  /* ------------------------------------------------------------------------
+   * 回复内联编辑（模块 1：作者 / 管理员）
+   * ---------------------------------------------------------------------- */
+
+  /**
+   * 打开回复编辑器：原地将内容区域切换为可编辑状态。
+   * 同一时间仅允许一个编辑器（帖子编辑器与回复编辑器互斥）。
+   * @param {Object} node 后端返回的回复节点
+   */
+  function openReplyEditor(node) {
+    if (!node) return;
+    if (!API.isLoggedIn()) { goLogin(); return; }
+    closePostEditor();
+    closeReplyEditor();
+    closeInlineReply();
+
+    var card = document.getElementById("reply-" + node.id);
+    if (!card) return;
+    var body = card.querySelector(".reply-body");
+    if (!body) return;
+
+    // 隐藏展示态元素（内容 / 编辑标记 / 操作栏）
+    var contentEl = body.querySelector(".reply-content");
+    var editedEl = body.querySelector(".reply-edited-mark");
+    var actionsEl = body.querySelector(".reply-actions");
+    if (contentEl) contentEl.classList.add("hidden");
+    if (editedEl) editedEl.classList.add("hidden");
+    if (actionsEl) actionsEl.classList.add("hidden");
+
+    var editor = buildReplyEditor(node);
+    // 插入到内容区之后（操作栏之前），保持视觉位置稳定
+    if (actionsEl && actionsEl.parentNode === body) {
+      body.insertBefore(editor, actionsEl);
+    } else {
+      body.appendChild(editor);
+    }
+
+    var ta = editor.querySelector("textarea");
+    if (ta) {
+      ta.focus();
+      try {
+        var pos = ta.value.length;
+        ta.setSelectionRange(pos, pos);
+      } catch (e) { /* 旧浏览器不支持 */ }
+    }
+  }
+
+  /**
+   * 构建回复编辑器（预填原内容，提供保存 / 取消）
+   * @param {Object} node
+   * @returns {HTMLElement}
+   */
+  function buildReplyEditor(node) {
+    var ta = API.el("textarea", {
+      class: "form-control md-editor reply-edit-textarea",
+      attrs: {
+        maxlength: "5000",
+        rows: "4",
+        placeholder: "编辑回复内容，支持 Markdown 语法…",
+      },
+    });
+    ta.value = node.content || "";
+
+    var errorEl = API.el("span", { class: "edit-error", attrs: { role: "alert" } });
+    var saveBtn = API.el("button", {
+      class: "btn btn-primary btn-sm reply-edit-save",
+      attrs: { type: "button" },
+    }, ["保存"]);
+    var cancelBtn = API.el("button", {
+      class: "btn btn-sm reply-edit-cancel",
+      attrs: { type: "button" },
+    }, ["取消"]);
+
+    var foot = API.el("div", { class: "reply-edit-foot" }, [
+      errorEl,
+      API.el("span", {
+        class: "edit-form-hint",
+        text: "Ctrl/Cmd + Enter 快速保存",
+      }),
+      cancelBtn,
+      saveBtn,
+    ]);
+
+    saveBtn.addEventListener("click", function () {
+      submitReplyEdit(node, ta, errorEl, saveBtn);
+    });
+    cancelBtn.addEventListener("click", function () {
+      closeReplyEditor();
+    });
+    ta.addEventListener("keydown", function (e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        submitReplyEdit(node, ta, errorEl, saveBtn);
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeReplyEditor();
+      }
+    });
+
+    return API.el("div", {
+      class: "reply-edit-form",
+      attrs: { "data-reply": String(node.id) },
+    }, [ta, foot]);
+  }
+
+  /** 关闭当前回复编辑器并恢复展示态（不重新拉取，内容未变） */
+  function closeReplyEditor() {
+    var editor = document.querySelector(".reply-edit-form");
+    if (!editor) return;
+    var card = editor.closest(".reply-item");
+    if (editor.parentNode) editor.parentNode.removeChild(editor);
+    if (card) {
+      var contentEl = card.querySelector(".reply-content");
+      var editedEl = card.querySelector(".reply-edited-mark");
+      var actionsEl = card.querySelector(".reply-actions");
+      if (contentEl) contentEl.classList.remove("hidden");
+      if (editedEl) editedEl.classList.remove("hidden");
+      if (actionsEl) actionsEl.classList.remove("hidden");
+    }
+  }
+
+  /** 提交回复编辑；失败时保留编辑内容并显示错误 */
+  async function submitReplyEdit(node, ta, errorEl, saveBtn) {
+    var content = (ta.value || "").trim();
+    if (!content) {
+      if (errorEl) errorEl.textContent = "回复内容不能为空";
+      ta.focus();
+      return;
+    }
+    if (errorEl) errorEl.textContent = "";
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = "保存中…";
+    try {
+      await API.updateReply(node.id, content);
+      showToast("回复已更新", "success");
+      loadPost(); // 整棵树刷新，编辑器随之移除，编辑标记同步更新
+    } catch (err) {
+      if (errorEl) errorEl.textContent = err.message || "保存失败，请重试";
+      showToast(err.message || "保存失败", "error");
+      saveBtn.disabled = false;
+      saveBtn.textContent = "保存";
+    }
   }
 
   async function submitInlineReply(parentId, ta, btn) {
@@ -856,6 +1125,13 @@
     dom.postMeta = document.getElementById("post-meta");
     dom.postActions = document.getElementById("post-actions");
     dom.postContent = document.getElementById("post-content");
+    dom.postEditedMark = document.getElementById("post-edited-mark");
+    dom.postEditForm = document.getElementById("post-edit-form");
+    dom.postEditTitle = document.getElementById("post-edit-title");
+    dom.postEditContent = document.getElementById("post-edit-content");
+    dom.postEditError = document.getElementById("post-edit-error");
+    dom.postEditSaveBtn = document.getElementById("post-edit-save-btn");
+    dom.postEditCancelBtn = document.getElementById("post-edit-cancel-btn");
     dom.replyList = document.getElementById("reply-list");
     dom.replyCount = document.getElementById("reply-count");
     dom.replyForm = document.getElementById("reply-form");
@@ -873,6 +1149,26 @@
 
     renderNav();
     renderReplyForm();
+
+    // 帖子编辑表单事件（模块 1）
+    if (dom.postEditSaveBtn) {
+      dom.postEditSaveBtn.addEventListener("click", savePostEdit);
+    }
+    if (dom.postEditCancelBtn) {
+      dom.postEditCancelBtn.addEventListener("click", closePostEditor);
+    }
+    if (dom.postEditContent) {
+      dom.postEditContent.addEventListener("keydown", function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+          e.preventDefault();
+          savePostEdit();
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          closePostEditor();
+        }
+      });
+    }
 
     // 回复表单事件（一级回复）
     if (dom.replyContent) {
@@ -921,5 +1217,9 @@
     reload: loadPost,
     openInlineReply: openInlineReply,
     closeInlineReply: closeInlineReply,
+    openPostEditor: openPostEditor,
+    closePostEditor: closePostEditor,
+    openReplyEditor: openReplyEditor,
+    closeReplyEditor: closeReplyEditor,
   };
 })(typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : this));

@@ -87,6 +87,33 @@ def ensure_reply_hierarchy_columns(verbose: bool = True) -> list:
     return added
 
 
+def ensure_updated_at_columns(verbose: bool = True) -> list:
+    """幂等地为存量 posts / replies 表补充 updated_at 字段（模块 1）。
+
+    与 ensure_reply_hierarchy_columns 同理：db.create_all() 只建不存在的表，
+    不修改已有表结构，因此对存量库做一次结构巡检并补齐。
+    MySQL/MariaDB 生产环境也可直接跑 database/migration_edit.sql。
+
+    返回本次实际补充的 "表.列" 列表（空列表表示结构已是最新）。
+    """
+    added = []
+
+    with app.app_context():
+        inspector = sa_inspect(db.engine)
+        with db.engine.begin() as conn:
+            for table in ("posts", "replies"):
+                if not inspector.has_table(table):
+                    continue
+                existing_cols = {c["name"] for c in inspector.get_columns(table)}
+                if "updated_at" not in existing_cols:
+                    conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN updated_at DATETIME"
+                    ))
+                    added.append(f"{table}.updated_at")
+
+    return added
+
+
 def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str = "admin123"):
     """
     初始化数据库：建表 + 创建管理员。
@@ -110,6 +137,13 @@ def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str
             print(f"[init_db] 已补充层级结构: {', '.join(added)}")
         else:
             print("[init_db] 层级字段与索引已就绪，无需变更")
+
+        # 存量库结构巡检：补齐模块 1 编辑时间字段
+        added_edit = ensure_updated_at_columns()
+        if added_edit:
+            print(f"[init_db] 已补充编辑时间字段: {', '.join(added_edit)}")
+        else:
+            print("[init_db] updated_at 字段已就绪，无需变更")
 
         # 检查管理员是否已存在
         existing = User.query.filter_by(username=admin_user).first()

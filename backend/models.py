@@ -84,6 +84,8 @@ class Post(db.Model):
         nullable=False,
         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
+    # 最后编辑时间；NULL 表示从未编辑
+    updated_at = db.Column(db.DateTime, nullable=True)
 
     # 关联关系
     replies = db.relationship(
@@ -103,6 +105,7 @@ class Post(db.Model):
             "title": self.title,
             "content": self.content,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
         if include_replies:
             data["replies"] = [r.to_dict() for r in self.replies]
@@ -147,6 +150,8 @@ class Reply(db.Model):
         nullable=False,
         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
+    # 最后编辑时间；NULL 表示从未编辑
+    updated_at = db.Column(db.DateTime, nullable=True)
 
     # 直接子回复（自引用）。两张自引用外键（parent_id / root_id）存在歧义，
     # 故用 foreign() 显式标注 primaryjoin 的外键一侧。
@@ -171,6 +176,7 @@ class Reply(db.Model):
             "role": self.author.role if self.author else None,
             "content": self.content,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "parent_id": self.parent_id,
             "root_id": self.root_id,
         }

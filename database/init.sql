@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS `posts` (
     `title`      VARCHAR(200) NOT NULL                   COMMENT '帖子标题',
     `content`    TEXT         NOT NULL                   COMMENT 'Markdown 纯文本源码',
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发布时间',
+    `updated_at` DATETIME              DEFAULT NULL      COMMENT '最后编辑时间（模块 1），NULL 表示从未编辑',
     PRIMARY KEY (`id`),
     KEY `fk_posts_user` (`user_id`),
     CONSTRAINT `fk_posts_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS `replies` (
     `parent_id`  INT              DEFAULT NULL           COMMENT '直接父回复 id（V3），NULL 表示一级回复',
     `root_id`    INT              DEFAULT NULL           COMMENT '所属话题根回复 id（V3），一级回复在库中存 NULL，读取时解析为其自身 id',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '回复时间',
+    `updated_at` DATETIME         DEFAULT NULL           COMMENT '最后编辑时间（模块 1），NULL 表示从未编辑',
     PRIMARY KEY (`id`),
     KEY `fk_replies_post` (`post_id`),
     KEY `fk_replies_user` (`user_id`),

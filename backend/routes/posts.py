@@ -9,6 +9,9 @@ V3 新增：
 - GET  /api/posts/{id}          返回 reply_tree + replies + reply_count
 - POST /api/posts/{id}/replies  Body 新增可选 parent_id（楼中楼）
 
+编辑接口（模块 1 新增）：
+- PUT  /api/posts/{id}          编辑帖子（作者或管理员），写入 updated_at
+
 删除回复接口见 routes/replies.py。
 """
 
@@ -199,6 +202,7 @@ def _reply_node_dict(reply, index, depth_map, root_map, children_map, post_autho
         "is_author": reply.user_id == post_author_id,
         "content": reply.content,
         "created_at": _parse_dt(reply.created_at),
+        "updated_at": _parse_dt(reply.updated_at),
         "parent_id": reply.parent_id,
         "root_id": root_map.get(reply.id),
         "depth": depth_map.get(reply.id, 0),
@@ -289,6 +293,7 @@ def list_posts():
             Post.title,
             Post.content,
             Post.created_at,
+            Post.updated_at,
             User.username,
             User.nickname,
             User.avatar_url,
@@ -314,6 +319,7 @@ def list_posts():
             "title": r.title,
             "content": r.content,
             "created_at": _parse_dt(r.created_at),
+            "updated_at": _parse_dt(r.updated_at),
             "reply_count": int(r.reply_count or 0),
         }
         for r in rows
@@ -373,6 +379,7 @@ def get_post(post_id):
                 "title": post.title,
                 "content": post.content,
                 "created_at": _parse_dt(post.created_at),
+                "updated_at": _parse_dt(post.updated_at),
                 "reply_count": len(replies),
                 "reply_tree": tree,
                 "replies": flat,
@@ -425,9 +432,74 @@ def create_post(current_user):
                 "title": post.title,
                 "content": post.content,
                 "created_at": _parse_dt(post.created_at),
+                "updated_at": None,
             }
         ),
         201,
+    )
+
+
+@posts_bp.put("/<int:post_id>")
+@require_auth
+def update_post(post_id, current_user):
+    """
+    PUT /api/posts/{id}
+
+    编辑帖子（标题与正文）。
+    仅帖子作者或管理员 (role='admin') 可编辑。
+
+    Header: Authorization: Bearer <token>
+    Body: {"title": "...", "content": "..."}
+    响应: 更新后的完整帖子信息（含 updated_at）
+    """
+    post = Post.query.get(post_id)
+    if not post:
+        return jsonify({"error": "帖子不存在"}), 404
+
+    is_owner = post.user_id == current_user.id
+    is_admin = current_user.role == "admin"
+    if not (is_owner or is_admin):
+        return jsonify({"error": "无权编辑该帖子"}), 403
+
+    data = request.get_json(silent=True) or {}
+    title = (data.get("title") or "").strip()
+    content = data.get("content") or ""
+
+    if not title:
+        return jsonify({"error": "标题不能为空"}), 400
+    if len(title) > 200:
+        return jsonify({"error": "标题长度不能超过 200 个字符"}), 400
+    if not content.strip():
+        return jsonify({"error": "内容不能为空"}), 400
+
+    try:
+        post.title = title
+        post.content = content
+        post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({"error": "编辑帖子失败"}), 500
+
+    author = post.author
+    return (
+        jsonify(
+            {
+                "message": "编辑成功",
+                "id": post.id,
+                "user_id": post.user_id,
+                "username": author.username if author else None,
+                "nickname": author.nickname if author else None,
+                "display_name": author.display_name if author else None,
+                "avatar_url": author.avatar_url if author else None,
+                "role": author.role if author else None,
+                "title": post.title,
+                "content": post.content,
+                "created_at": _parse_dt(post.created_at),
+                "updated_at": _parse_dt(post.updated_at),
+            }
+        ),
+        200,
     )
 
 
