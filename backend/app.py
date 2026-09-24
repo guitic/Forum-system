@@ -7,15 +7,31 @@
 
 import logging
 import os
+import sqlite3
 import sys
 
 from flask import Flask, jsonify, request, send_from_directory
+from sqlalchemy.engine import Engine
+from sqlalchemy import event
 
 # 将当前目录加入 sys.path，确保可以导入同包下的模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from config import config
 from models import db
+
+
+# SQLite 默认不启用外键约束（PRAGMA foreign_keys=OFF），会导致模型声明的
+# ON DELETE CASCADE / SET NULL 完全不生效。在每个底层连接建立时显式开启，
+# 使 SQLite（开发/测试）与 MySQL/MariaDB（生产，init.sql 已声明外键动作）
+# 的级联删除行为保持一致，级联删除统一由数据库执行。
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+    if isinstance(dbapi_connection, sqlite3.Connection):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
 
 # ---------- 应用工厂 ----------
 

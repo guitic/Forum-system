@@ -18,7 +18,11 @@ replies_bp = Blueprint("replies", __name__, url_prefix="/api/replies")
 
 
 def _collect_descendant_ids(root_id, post_id):
-    """收集 root_id 及所有子孙回复的 id 集合。
+    """统计 root_id 自身及所有子孙回复的 id 集合（仅用于删除计数）。
+
+    级联删除本身统一由数据库外键 ON DELETE CASCADE 执行
+    （replies.parent_id → replies.id），应用层不再批量删除子孙，
+    避免与数据库级联重复操作。
 
     单次查询该帖全部回复的 (id, parent_id)，在内存中构建父子映射后
     迭代遍历，避免逐层查询的 N+1 问题（查询次数与嵌套深度无关）。
@@ -114,13 +118,12 @@ def delete_reply(reply_id, current_user):
     if not (is_owner or is_admin):
         return jsonify({"error": "无权删除该回复"}), 403
 
-    to_delete = _collect_descendant_ids(reply.id, reply.post_id)
-    deleted_count = len(to_delete)
+    # 仅统计将被级联删除的总数用于响应；实际删除只针对根回复，
+    # 其全部子孙由数据库 replies.parent_id ON DELETE CASCADE 自动删除
+    deleted_count = len(_collect_descendant_ids(reply.id, reply.post_id))
 
     try:
-        Reply.query.filter(
-            Reply.id.in_(list(to_delete))
-        ).delete(synchronize_session=False)
+        db.session.delete(reply)
         db.session.commit()
     except Exception:
         db.session.rollback()

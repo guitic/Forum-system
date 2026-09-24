@@ -41,9 +41,16 @@ class User(db.Model):
         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
     )
 
-    # 关联关系
-    posts = db.relationship("Post", backref="author", lazy="select")
-    replies = db.relationship("Reply", backref="author", lazy="select")
+    # 关联关系。
+    # passive_deletes=True：删除用户时由数据库外键 ON DELETE CASCADE
+    # 级联清理其帖子/回复，ORM 不要预先把子行外键 UPDATE 成 NULL
+    # （那样会使数据库级联失效并产生悬挂数据）
+    posts = db.relationship(
+        "Post", backref="author", lazy="select", passive_deletes=True
+    )
+    replies = db.relationship(
+        "Reply", backref="author", lazy="select", passive_deletes=True
+    )
 
     @property
     def display_name(self):
@@ -72,9 +79,12 @@ class Post(db.Model):
     __tablename__ = "posts"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    # 发帖人外键
+    # 发帖人外键；删除用户时由数据库级联删除其帖子（与 database/init.sql 对齐）
     user_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     title = db.Column(db.String(200), nullable=False)
     # content 存 Markdown 源码
@@ -89,9 +99,15 @@ class Post(db.Model):
     # 浏览次数（模块 3）：原子自增维护，应用层做 30 分钟同用户/IP 去重
     view_count = db.Column(db.Integer, nullable=False, default=0, server_default="0")
 
-    # 关联关系
+    # 关联关系。
+    # passive_deletes=True：删帖时由 replies.post_id ON DELETE CASCADE
+    # 自动删除全部回复，ORM 不做解除关联的 UPDATE
     replies = db.relationship(
-        "Reply", backref="post", lazy="select", order_by="Reply.created_at"
+        "Reply",
+        backref="post",
+        lazy="select",
+        order_by="Reply.created_at",
+        passive_deletes=True,
     )
 
     def to_dict(self, include_replies=False):
@@ -132,21 +148,36 @@ class Reply(db.Model):
     __tablename__ = "replies"
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    # 所属帖子外键（需求要求建立索引）
+    # 所属帖子外键（需求要求建立索引）；删帖时数据库级联删除全部回复
     post_id = db.Column(
-        db.Integer, db.ForeignKey("posts.id"), nullable=False, index=True
+        db.Integer,
+        db.ForeignKey("posts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     user_id = db.Column(
-        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     content = db.Column(db.Text, nullable=False)
-    # 直接父回复（V3 新增）：NULL = 一级回复
+    # 直接父回复（V3 新增）：NULL = 一级回复。
+    # 删除父回复时由数据库级联删除整棵子树（级联删除的唯一执行点）
     parent_id = db.Column(
-        db.Integer, db.ForeignKey("replies.id"), nullable=True, index=True
+        db.Integer,
+        db.ForeignKey("replies.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
-    # 所属话题根回复（V3 新增）：一级回复自身为 NULL
+    # 所属话题根回复（V3 新增）：一级回复自身为 NULL。
+    # root 仅为聚合冗余指针，root 行被删时整树已由 parent_id 级联删除，
+    # SET NULL 与 init.sql 保持一致
     root_id = db.Column(
-        db.Integer, db.ForeignKey("replies.id"), nullable=True, index=True
+        db.Integer,
+        db.ForeignKey("replies.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     created_at = db.Column(
         db.DateTime,
@@ -158,12 +189,15 @@ class Reply(db.Model):
 
     # 直接子回复（自引用）。两张自引用外键（parent_id / root_id）存在歧义，
     # 故用 foreign() 显式标注 primaryjoin 的外键一侧。
+    # passive_deletes=True：删除父回复时由 parent_id ON DELETE CASCADE
+    # 级联删除整棵子树，ORM 不做解除关联的 UPDATE
     children = db.relationship(
         "Reply",
         primaryjoin="Reply.id == foreign(Reply.parent_id)",
         foreign_keys=[parent_id],
         lazy="select",
         order_by="Reply.created_at",
+        passive_deletes=True,
     )
 
     def to_dict(self):

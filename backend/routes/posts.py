@@ -673,8 +673,8 @@ def delete_post(post_id, current_user):
         return jsonify({"error": "无权删除该帖子"}), 403
 
     try:
-        # 级联删除所有关联回复
-        Reply.query.filter_by(post_id=post.id).delete()
+        # 只删除帖子本身；全部关联回复由数据库外键
+        # replies.post_id ON DELETE CASCADE 自动级联删除
         db.session.delete(post)
         db.session.commit()
     except Exception:

@@ -252,13 +252,32 @@ with app.app_context():
           all(Reply.query.get(x) is None for x in (a, b, c3)))
 
 # ---------- 悬空引用降级 ----------
-r = post_reply("bob", "孤儿测试").get_json()
-orphan_base = r["id"]
-with app.app_context():
-    child = Reply(post_id=pid, user_id=info["alice"][0], content="悬挂父引用", parent_id=777777)
-    db.session.add(child)
-    db.session.commit()
-    orphan_child = child.id
+# 数据库外键开启后（含 MySQL 生产与当前 SQLite），正常路径无法写入
+# 悬挂 parent_id；此处用关闭外键检查的底层连接模拟历史遗留脏数据，
+# 验证读取期的降级容错仍然成立
+import sqlite3  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
+_raw = sqlite3.connect(DB_FILE)
+try:
+    _raw.execute("PRAGMA foreign_keys=OFF")
+    _cur = _raw.execute(
+        "INSERT INTO replies "
+        "(post_id, user_id, content, parent_id, root_id, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            pid,
+            info["alice"][0],
+            "悬挂父引用",
+            777777,
+            None,
+            datetime.now(timezone.utc).replace(tzinfo=None),
+        ),
+    )
+    orphan_child = _cur.lastrowid
+    _raw.commit()
+finally:
+    _raw.close()
 j = client.get(f"/api/posts/{pid}").get_json()
 flat = {x["id"]: x for x in j["replies"]}
 check("41 悬空 parent_id 降级为一级回复",

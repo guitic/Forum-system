@@ -15,6 +15,7 @@
 
 import argparse
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -143,6 +144,120 @@ def ensure_view_count_column(verbose: bool = True) -> list:
     return added
 
 
+def ensure_sqlite_cascade_constraints(verbose: bool = True) -> list:
+    """幂等地为存量 SQLite 库补齐外键的 ON DELETE 动作。
+
+    背景：级联删除统一由数据库执行，模型在 ForeignKey 上声明了
+    ondelete="CASCADE"/"SET NULL"（与生产 MySQL 的 database/init.sql
+    对齐）。但 db.create_all() 只建不存在的表，不会修改已有表结构，
+    且 SQLite 不支持 ALTER TABLE 修改外键，只能按官方 recipe
+    「建新表 → 拷贝数据 → 删旧表 → 改名」在单事务内重建。
+
+    MySQL/MariaDB 生产环境的外键动作由 init.sql / migration_v3.sql
+    保证，本函数对非 SQLite 方言直接跳过。
+
+    返回本次实际重建的表名列表（空列表表示结构已是最新）。
+    """
+    rebuilt: list = []
+
+    with app.app_context():
+        if db.engine.dialect.name != "sqlite":
+            return rebuilt
+
+        from sqlalchemy.schema import CreateTable
+
+        from models import Post, Reply
+
+        # (Table 对象, 重建期临时表名, 判定旧表是否已带级联动作的标记)
+        targets = [
+            (Post.__table__, "posts__fknew", "ON DELETE CASCADE"),
+            (Reply.__table__, "replies__fknew", "ON DELETE SET NULL"),
+        ]
+
+        fairy = db.engine.raw_connection()
+        try:
+            cur = fairy.cursor()
+            current_sql = {}
+            for table, _tmp_name, _marker in targets:
+                row = cur.execute(
+                    "SELECT sql FROM sqlite_master "
+                    "WHERE type='table' AND name=?",
+                    (table.name,),
+                ).fetchone()
+                current_sql[table.name] = (row[0] if row else "") or ""
+
+            pending = [
+                (table, tmp_name)
+                for table, tmp_name, marker in targets
+                if marker not in current_sql[table.name].upper()
+            ]
+
+            if pending:
+                # PRAGMA foreign_keys 是连接级设置，不能在事务内切换。
+                # 切到 autocommit 规避 sqlite3 模块隐式事务，再用显式
+                # BEGIN/COMMIT 把整个重建过程包进单个事务，失败可整体回滚。
+                fairy.dbapi_connection.isolation_level = None
+                cur.execute("PRAGMA foreign_keys=OFF")
+                # 现代 SQLite（3.25+）默认即 OFF；显式设置确保 RENAME 时
+                # 数据库自动同步修正其它表对被改名表的外键引用
+                cur.execute("PRAGMA legacy_alter_table=OFF")
+                cur.execute("BEGIN")
+                try:
+                    for table, tmp_name in pending:
+                        ddl = str(CreateTable(table).compile(db.engine))
+                        # CREATE TABLE 与 REFERENCES 中的表名整体替换为临时名，
+                        # 使 replies 的自引用外键在建表期指向临时表自身
+                        ddl = re.sub(r"\b" + table.name + r"\b", tmp_name, ddl)
+                        cur.execute(ddl)
+
+                        columns = [column.name for column in table.columns]
+                        col_sql = ", ".join(f'"{name}"' for name in columns)
+                        cur.execute(
+                            f'INSERT INTO "{tmp_name}" ({col_sql}) '
+                            f'SELECT {col_sql} FROM "{table.name}"'
+                        )
+                        cur.execute(f'DROP TABLE "{table.name}"')
+                        cur.execute(
+                            f'ALTER TABLE "{tmp_name}" RENAME TO "{table.name}"'
+                        )
+                        rebuilt.append(table.name)
+                    fairy.commit()
+                except Exception:
+                    fairy.rollback()
+                    raise
+                finally:
+                    # 回到连接池约定状态（connect 事件监听器也保证 ON）
+                    cur.execute("PRAGMA foreign_keys=ON")
+                    cur.close()
+        finally:
+            fairy.close()
+
+        # 旧索引随 DROP TABLE 一并删除。注意 create_all 对已存在的表
+        # 会整体跳过（不补建索引），因此显式按模型元数据逐个创建索引，
+        # checkfirst=True 保证幂等
+        for table in (Post.__table__, Reply.__table__):
+            for index in table.indexes:
+                index.create(bind=db.engine, checkfirst=True)
+        # 仍保留 create_all，覆盖全新部署时缺表的场景
+        db.create_all()
+
+        # 执行全库外键完整性校验，存在违例直接失败暴露问题
+        check_conn = db.engine.raw_connection()
+        try:
+            violations = check_conn.execute(
+                "PRAGMA foreign_key_check"
+            ).fetchall()
+        finally:
+            check_conn.close()
+        if violations:
+            raise RuntimeError(
+                f"外键完整性检查发现 {len(violations)} 条违例（前 5 条）: "
+                f"{violations[:5]}"
+            )
+
+    return rebuilt
+
+
 def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str = "admin123"):
     """
     初始化数据库：建表 + 创建管理员。
@@ -180,6 +295,13 @@ def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str
             print(f"[init_db] 已补充浏览量字段: {', '.join(added_views)}")
         else:
             print("[init_db] view_count 字段已就绪，无需变更")
+
+        # 存量 SQLite 库：补齐外键 ON DELETE 动作，级联删除统一由数据库执行
+        rebuilt_fk = ensure_sqlite_cascade_constraints()
+        if rebuilt_fk:
+            print(f"[init_db] 已重建表以启用数据库级联: {', '.join(rebuilt_fk)}")
+        else:
+            print("[init_db] 外键级联约束已就绪，无需变更")
 
         # 检查管理员是否已存在
         existing = User.query.filter_by(username=admin_user).first()
