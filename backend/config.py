@@ -104,6 +104,12 @@ class Config:
     # 回复内容最大长度
     MAX_REPLY_LENGTH = int(os.getenv("MAX_REPLY_LENGTH", "5000"))
 
+    # ---------- 浏览量统计配置（模块 3 新增） ----------
+    # 同一登录用户（未登录时按 IP）对同一帖子的浏览去重窗口（秒），默认 30 分钟
+    VIEW_DEDUP_WINDOW_SECONDS = int(os.getenv("VIEW_DEDUP_WINDOW_SECONDS", "1800"))
+    # 进程内去重表的最大条目数，超过后顺带清理过期键，防止内存无限增长
+    VIEW_DEDUP_MAX_ENTRIES = int(os.getenv("VIEW_DEDUP_MAX_ENTRIES", "100000"))
+
 
 # 默认配置实例
 config = Config()

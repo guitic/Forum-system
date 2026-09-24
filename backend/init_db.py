@@ -114,6 +114,35 @@ def ensure_updated_at_columns(verbose: bool = True) -> list:
     return added
 
 
+def ensure_view_count_column(verbose: bool = True) -> list:
+    """幂等地为存量 posts 表补充 view_count 字段（模块 3）。
+
+    db.create_all() 只建不存在的表，不修改已有表结构，因此对存量库
+    做一次结构巡检并补齐。MySQL/MariaDB 生产环境也可直接跑
+    database/migration_views.sql。
+
+    返回本次实际补充的 "表.列" 列表（空列表表示结构已是最新）。
+    """
+    added = []
+
+    with app.app_context():
+        inspector = sa_inspect(db.engine)
+        if not inspector.has_table("posts"):
+            return added
+
+        existing_cols = {c["name"] for c in inspector.get_columns("posts")}
+        if "view_count" not in existing_cols:
+            with db.engine.begin() as conn:
+                # 存量行由数据库默认值自动填 0（SQLite / MySQL 均支持）
+                conn.execute(text(
+                    "ALTER TABLE posts ADD COLUMN view_count "
+                    "INTEGER NOT NULL DEFAULT 0"
+                ))
+            added.append("posts.view_count")
+
+    return added
+
+
 def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str = "admin123"):
     """
     初始化数据库：建表 + 创建管理员。
@@ -144,6 +173,13 @@ def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str
             print(f"[init_db] 已补充编辑时间字段: {', '.join(added_edit)}")
         else:
             print("[init_db] updated_at 字段已就绪，无需变更")
+
+        # 存量库结构巡检：补齐模块 3 浏览量字段
+        added_views = ensure_view_count_column()
+        if added_views:
+            print(f"[init_db] 已补充浏览量字段: {', '.join(added_views)}")
+        else:
+            print("[init_db] view_count 字段已就绪，无需变更")
 
         # 检查管理员是否已存在
         existing = User.query.filter_by(username=admin_user).first()

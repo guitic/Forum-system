@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS `posts` (
     `content`    TEXT         NOT NULL                   COMMENT 'Markdown 纯文本源码',
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发布时间',
     `updated_at` DATETIME              DEFAULT NULL      COMMENT '最后编辑时间（模块 1），NULL 表示从未编辑',
+    `view_count` INT          NOT NULL DEFAULT 0         COMMENT '帖子浏览次数统计（模块 3），30 分钟内同一用户/IP 只计一次',
     PRIMARY KEY (`id`),
     KEY `fk_posts_user` (`user_id`),
     CONSTRAINT `fk_posts_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)

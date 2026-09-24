@@ -16,7 +16,10 @@ V3 新增：
 """
 
 import functools
+import logging
 import math
+import threading
+import time
 from datetime import datetime, timezone
 
 import jwt
@@ -27,6 +30,69 @@ from config import config
 from models import Post, Reply, User, db
 
 posts_bp = Blueprint("posts", __name__, url_prefix="/api/posts")
+
+logger = logging.getLogger("forum-api")
+
+
+# ---------- 浏览量去重（模块 3） ----------
+# 进程内 TTL 去重表：{(post_id, visitor_key): 过期时间戳(monotonic)}
+# visitor_key：已登录用户为 "u:<id>"，匿名访客为 "ip:<addr>"。
+# 说明：进程内去重在多实例部署时各实例独立计数；当前部署形态为单实例，
+#       未来水平扩展时可平滑替换为 Redis（SETNX + EXPIRE 同一套语义）。
+_view_dedup = {}
+_view_dedup_lock = threading.Lock()
+
+
+def _visitor_key():
+    """识别本次访问的访客：优先登录用户 id，无效 token / 匿名回退客户端 IP。"""
+    header = request.headers.get("Authorization", "")
+    if header.startswith("Bearer "):
+        token = header[len("Bearer "):].strip()
+        try:
+            payload = jwt.decode(
+                token,
+                config.JWT_SECRET_KEY,
+                algorithms=[config.JWT_ALGORITHM],
+            )
+            return f"u:{int(payload.get('sub'))}"
+        except (jwt.InvalidTokenError, TypeError, ValueError):
+            pass  # 无效/过期 token 不阻断浏览，降级按 IP 去重
+
+    # Nginx 反代部署取 X-Forwarded-For 首跳；直连回退 remote_addr。
+    # 注意：直连客户端可伪造该头绕过去重（仅影响统计偏高），可信代理内网部署无此问题。
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    ip = forwarded.split(",")[0].strip() if forwarded.strip() else (
+        request.remote_addr or "unknown"
+    )
+    return f"ip:{ip}"
+
+
+def _reserve_view(post_id):
+    """检查去重窗口：窗口内未访问则占位并返回去重 key，否则返回 None。
+
+    占位在自增 SQL 之前完成；若随后的数据库写入失败，必须调用
+    _release_view 释放占位，避免该访客后续在窗口内永远无法计数。
+    """
+    key = (post_id, _visitor_key())
+    now = time.monotonic()
+    window = config.VIEW_DEDUP_WINDOW_SECONDS
+    with _view_dedup_lock:
+        expiry = _view_dedup.get(key)
+        if expiry is not None and expiry > now:
+            return None
+        _view_dedup[key] = now + window
+        # 顺带清理过期键，防止内存无限增长
+        if len(_view_dedup) > config.VIEW_DEDUP_MAX_ENTRIES:
+            for dead_key in [k for k, exp in _view_dedup.items() if exp <= now]:
+                _view_dedup.pop(dead_key, None)
+    return key
+
+
+def _release_view(key):
+    """释放一次未成功写入的去重占位。"""
+    with _view_dedup_lock:
+        _view_dedup.pop(key, None)
+
 
 
 # ---------- 鉴权装饰器 ----------
@@ -350,10 +416,32 @@ def get_post(post_id):
     - replies:    扁平列表（按时间正序，含层级字段，向后兼容）
     - reply_tree: 嵌套树（展示用，最多 MAX_REPLY_DEPTH+1 层）
     - reply_count: 回复总数
+    模块 3 新增：
+    - view_count: 浏览次数。本次访问通过 30 分钟同用户/IP 去重后，
+                  以原子 SQL（view_count = view_count + 1）自增；
+                  计数写入与详情查询分离，写入失败不阻断详情访问。
     """
     post = Post.query.get(post_id)
     if not post:
         return jsonify({"error": "帖子不存在"}), 404
+
+    # 浏览量自增（独立事务，原子表达式避免并发丢增量）
+    dedup_key = _reserve_view(post.id)
+    if dedup_key is not None:
+        try:
+            Post.query.filter(Post.id == post.id).update(
+                {Post.view_count: Post.view_count + 1},
+                synchronize_session=False,
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            # 写入失败：释放占位，使该访客下次访问可重新计数；详情正常返回
+            _release_view(dedup_key)
+            logger.warning("帖子 %s 浏览量自增失败", post.id, exc_info=True)
+
+    # 自增提交后会话已过期，此处访问即触发详情数据读取（读写分离）
+    db.session.expire(post)
 
     # 按 created_at 升序返回回复（父回复必先于子回复出现）
     replies = (
@@ -380,6 +468,7 @@ def get_post(post_id):
                 "content": post.content,
                 "created_at": _parse_dt(post.created_at),
                 "updated_at": _parse_dt(post.updated_at),
+                "view_count": int(post.view_count or 0),
                 "reply_count": len(replies),
                 "reply_tree": tree,
                 "replies": flat,

@@ -297,6 +297,16 @@
   /* ------------------------------------------------------------------------
    * 帖子详情渲染（V3：凸显楼主）
    * ---------------------------------------------------------------------- */
+
+  /**
+   * 格式化浏览量（模块 3）：无效值回退为 0，千位分隔符显示（如 1,234）。
+   */
+  function formatViewCount(n) {
+    var v = parseInt(n, 10);
+    if (isNaN(v) || v < 0) v = 0;
+    return v.toLocaleString("en-US");
+  }
+
   function renderPost(post) {
     var titleEl = dom.postTitle;
     var metaEl = dom.postMeta;
@@ -337,6 +347,12 @@
     metaEl.appendChild(API.el("span", { attrs: { title: fullTime }, text: time }));
     metaEl.appendChild(API.el("span", { class: "meta-dot", text: "·" }));
     metaEl.appendChild(API.el("span", { text: replyCount + " 条回复" }));
+    metaEl.appendChild(API.el("span", { class: "meta-dot", text: "·" }));
+    metaEl.appendChild(API.el("span", {
+      class: "meta-views",
+      attrs: { title: "浏览次数" },
+      text: "👁 " + formatViewCount(post.view_count) + " 浏览",
+    }));
 
     // actions：楼主或管理员可编辑 / 删除
     actionsEl.innerHTML = "";

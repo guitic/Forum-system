@@ -905,6 +905,15 @@ textarea.form-control.md-editor {
   color: var(--color-text-light);
 }
 
+/* 浏览量（模块 3） */
+.post-detail-meta .meta-views {
+  white-space: nowrap;
+}
+
+.post-detail-meta .meta-views-placeholder {
+  color: var(--color-text-light);
+}
+
 .post-actions-bar {
   display: flex;
   align-items: center;

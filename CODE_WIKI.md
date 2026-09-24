@@ -297,9 +297,13 @@ _build_reply_tree(...)                拼装嵌套树 tree + 扁平列表 flat
 
 #### `get_post(post_id)`
 
-- `GET /api/posts/{id}`,返回帖子详情 + `replies`(扁平)+ `reply_tree`(嵌套)+ `reply_count`;
+- `GET /api/posts/{id}`,返回帖子详情 + `replies`(扁平)+ `reply_tree`(嵌套)+ `reply_count` + `view_count`;
 - replies 按 `created_at` 升序(保证父先于子出现);
-- 调用 `_build_reply_tree(replies, post.user_id, config.MAX_REPLY_DEPTH)`。
+- 调用 `_build_reply_tree(replies, post.user_id, config.MAX_REPLY_DEPTH)`;
+- **浏览量统计(模块 3)**:`_reserve_view(post_id)` 按"登录用户 id → XFF 首跳/IP"识别访客,
+  30 分钟窗口内同一访客只计一次(`VIEW_DEDUP_WINDOW_SECONDS`,进程内 TTL 表 + 锁,超阈值顺带清理);
+  通过后执行原子语句 `UPDATE posts SET view_count = view_count + 1`(独立事务,严禁读-改-写),
+  与详情查询分离;写入失败回滚并 `_release_view` 释放占位,详情仍正常返回。
 
 #### `create_post(current_user)`、`create_reply(post_id, current_user)`、`delete_post(post_id, current_user)`
 
@@ -309,11 +313,12 @@ _build_reply_tree(...)                拼装嵌套树 tree + 扁平列表 flat
 
 ### 5.4 [routes/replies.py](backend/routes/replies.py)
 
-#### `_collect_descendant_ids(root_id)`
+#### `_collect_descendant_ids(root_id, post_id)`
 
-- BFS 迭代收集 `root_id` 及所有子孙 id;
-- 用 `Reply.parent_id.in_(frontier)` 批量查询,避免递归栈溢出;
-- 含环保护(`if kid.id in to_delete: continue`)。
+- 收集 `root_id` 及所有子孙 id;
+- **单次查询**该帖全部回复的 `(id, parent_id)`,在内存中构建父子映射后迭代 BFS,
+  查询次数与嵌套深度无关(避免逐层 `IN` 查询的 N+1 问题);
+- 含环保护(`if kid not in to_delete` 判断)。
 
 #### `delete_reply(reply_id, current_user)`
 
@@ -345,7 +350,9 @@ _build_reply_tree(...)                拼装嵌套树 tree + 扁平列表 flat
 | 函数 | 说明 |
 | :--- | :--- |
 | `ensure_reply_hierarchy_columns(verbose=True)` | 幂等补齐 `parent_id` / `root_id` 列与 `idx_reply_parent` / `idx_reply_root` 索引;适配 SQLite 不会自动加列的场景 |
-| `init_database(drop, admin_user, admin_pass)` | `drop_all()` + `create_all()` + 调用上面函数 + 创建管理员账号;打印统计 |
+| `ensure_updated_at_columns(verbose=True)` | 幂等补齐 posts / replies 的 `updated_at` 列(模块 1) |
+| `ensure_view_count_column(verbose=True)` | 幂等补齐 posts 的 `view_count` 列,默认 0(模块 3) |
+| `init_database(drop, admin_user, admin_pass)` | `drop_all()` + `create_all()` + 调用上面巡检函数 + 创建管理员账号;打印统计 |
 
 ### 5.8 [frontend/js/api.js](frontend/js/api.js) — 前端核心
 
@@ -387,10 +394,12 @@ users (1) ──── (N) posts  (1) ──── (N) replies
 | 表 | 主要字段 | 索引 |
 | :--- | :--- | :--- |
 | `users` | id, username(unique), password_hash, role, nickname, bio, avatar_url, created_at | uk_username, idx_username |
-| `posts` | id, user_id(FK), title, content, created_at, updated_at | fk_posts_user |
+| `posts` | id, user_id(FK), title, content, created_at, updated_at, view_count | fk_posts_user |
 | `replies` | id, post_id(FK), user_id(FK), content, parent_id(FK), root_id(FK), created_at, updated_at | fk_replies_post, fk_replies_user, idx_post_id, idx_reply_parent, idx_reply_root |
 
 `updated_at` 为模块 1(编辑功能)新增字段,`DATETIME` 允许为 `NULL`,`NULL` 表示内容从未被编辑;迁移脚本见 [database/migration_edit.sql](database/migration_edit.sql)。
+
+`view_count` 为模块 3(浏览量统计)新增字段,`INT NOT NULL DEFAULT 0`,由详情接口原子自增维护(30 分钟同用户/IP 去重);迁移脚本见 [database/migration_views.sql](database/migration_views.sql)。
 
 外键级联策略:posts→replies 为 `ON DELETE CASCADE`;replies 自引用 `parent_id` 为 `CASCADE`,`root_id` 为 `SET NULL`。
 
@@ -403,7 +412,7 @@ users (1) ──── (N) posts  (1) ──── (N) replies
 | POST | `/api/auth/register` | ❌ | 用户注册(8-14 位用户名 + 字母数字特殊字符密码) |
 | POST | `/api/auth/login` | ❌ | 用户登录,返回 JWT + 用户基本信息 |
 | GET | `/api/posts?page=&limit=` | ❌ | 帖子列表分页(默认 20 条/页,最大 100) |
-| GET | `/api/posts/{id}` | ❌ | 帖子详情 + `replies`(扁平)+ `reply_tree`(嵌套)+ `reply_count` |
+| GET | `/api/posts/{id}` | ❌ | 帖子详情 + `replies`(扁平)+ `reply_tree`(嵌套)+ `reply_count` + `view_count`;同一用户/IP 30 分钟内只计一次浏览 |
 | POST | `/api/posts` | ✅ Bearer | 发布新帖 |
 | PUT | `/api/posts/{id}` | ✅ Bearer | 编辑帖子(仅作者/admin);Body `{title, content}`;写入 `updated_at`,返回更新后的完整帖子 |
 | POST | `/api/posts/{id}/replies` | ✅ Bearer | 发布回复;Body 可选 `parent_id` 实现楼中楼 |
@@ -444,6 +453,7 @@ users (1) ──── (N) posts  (1) ──── (N) replies
   "content": "# Hello\n\n内容",
   "created_at": "2026-09-22T10:00:00+00:00",
   "updated_at": "2026-09-22T13:08:15+00:00",
+  "view_count": 42,
   "reply_count": 5,
   "reply_tree": [
     {
@@ -464,6 +474,10 @@ users (1) ──── (N) posts  (1) ──── (N) replies
 ```
 
 > `updated_at` 为 `null` 表示内容从未编辑;非空时前端在内容下方显示「编辑于 X 前」灰色小字。
+
+> `view_count` 为本次请求返回时的最新浏览量(整数)。浏览量在详情接口内原子自增,
+> 同一登录用户(未登录按 IP,反代环境取 `X-Forwarded-For` 首跳)30 分钟内重复访问只计一次;
+> 前端在 meta 栏显示「👁 N 浏览」,数字经千位分隔符格式化(如 `1,234`),数据到达前显示 `--` 占位。
 
 **编辑帖子响应**(`PUT /api/posts/{id}`):
 

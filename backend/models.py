@@ -86,6 +86,8 @@ class Post(db.Model):
     )
     # 最后编辑时间；NULL 表示从未编辑
     updated_at = db.Column(db.DateTime, nullable=True)
+    # 浏览次数（模块 3）：原子自增维护，应用层做 30 分钟同用户/IP 去重
+    view_count = db.Column(db.Integer, nullable=False, default=0, server_default="0")
 
     # 关联关系
     replies = db.relationship(
@@ -106,6 +108,7 @@ class Post(db.Model):
             "content": self.content,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "view_count": int(self.view_count or 0),
         }
         if include_replies:
             data["replies"] = [r.to_dict() for r in self.replies]
