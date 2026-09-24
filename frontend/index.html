@@ -6,10 +6,10 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="纯文本技术交流论坛 - 一个简洁、专注的技术讨论社区" />
-  <title>首页 - 技术论坛</title>
+  <meta name="description" content="GraphFlow 技术交流论坛 - 分享技术、交流想法、共同成长的开发者社区" />
+  <title>GraphFlow 技术交流论坛</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
-  <link rel="stylesheet" href="css/style.css?v=13" />
+  <link rel="stylesheet" href="css/style.css?v=14" />
   <!-- marked.js - Markdown 解析 -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- highlight.js - 代码高亮（浏览器预构建版，含所有常用语言） -->
@@ -21,12 +21,52 @@
     <!-- ==================== Header ==================== -->
     <header class="header">
       <div class="container header-inner">
-        <a href="index.html" class="logo">
-          <span class="logo-mark">T</span>
-          <span>技术论坛</span>
+        <a href="index.html" class="logo" aria-label="GraphFlow 技术交流论坛 首页">
+          <span class="logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 2-2zm3 5h10v1.6H7V9zm0 4h7v1.6H7V13z"/></svg>
+          </span>
+          <span>GraphFlow 论坛</span>
         </a>
-        <div class="nav-actions" id="nav-actions">
-          <!-- 由 index.js 动态渲染 -->
+
+        <!-- 中部导航 tab -->
+        <nav class="nav-tabs" aria-label="内容导航">
+          <button type="button" class="nav-tab active" data-tab="default" aria-pressed="true">首页</button>
+          <button type="button" class="nav-tab" data-tab="latest" aria-pressed="false">最新</button>
+          <button type="button" class="nav-tab" data-tab="hot" aria-pressed="false">热门</button>
+          <button type="button" class="nav-tab" data-tab="tags" aria-pressed="false">标签</button>
+        </nav>
+
+        <!-- 搜索 -->
+        <div class="header-search">
+          <div class="search-box">
+            <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+            <input type="search" id="header-search-input" class="search-input" placeholder="搜索帖子标题 / 内容…" aria-label="搜索帖子" autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="header-spacer"></div>
+
+        <!-- 登录 / 用户下拉（由 index.js 动态渲染） -->
+        <div class="nav-actions" id="nav-actions"></div>
+
+        <!-- 移动端汉堡（checkbox hack，input 须位于 .nav-drawer 之前） -->
+        <input type="checkbox" id="nav-toggle-input" class="nav-toggle-input" />
+        <label for="nav-toggle-input" class="nav-toggle" title="打开菜单" aria-label="打开菜单">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg>
+        </label>
+        <div class="nav-drawer">
+          <div class="nav-tabs" aria-label="内容导航">
+            <button type="button" class="nav-tab active" data-tab="default">首页</button>
+            <button type="button" class="nav-tab" data-tab="latest">最新</button>
+            <button type="button" class="nav-tab" data-tab="hot">热门</button>
+            <button type="button" class="nav-tab" data-tab="tags">标签</button>
+          </div>
+          <div class="drawer-search">
+            <div class="search-box">
+              <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
+              <input type="search" id="drawer-search-input" class="search-input" placeholder="搜索帖子标题 / 内容…" aria-label="搜索帖子" autocomplete="off" />
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -34,39 +74,81 @@
     <!-- ==================== Main ==================== -->
     <main>
       <div class="container">
-        <div class="page-header">
-          <div>
-            <h1 class="page-title">最新帖子</h1>
-            <div class="page-subtitle">技术交流 · 开源讨论 · 问题求助</div>
+        <!-- 轻量标语条 -->
+        <div class="site-banner">
+          <span class="banner-icon" aria-hidden="true">⚡</span>
+          <span>欢迎来到 <b>GraphFlow 技术交流论坛</b> —— 分享技术、讨论开源、互助答疑，与开发者共同成长</span>
+        </div>
+
+        <div class="home-layout">
+          <!-- 左栏：帖子信息流 -->
+          <div class="feed-col">
+            <!-- 帖子列表 -->
+            <div id="post-list" class="post-list" aria-live="polite">
+              <div class="loading">加载中</div>
+            </div>
+
+            <!-- 分页 -->
+            <div id="pagination" class="pagination"></div>
           </div>
-          <button id="open-post-btn" class="btn btn-primary btn-sm hidden">
-            ✍ 发布新帖
-          </button>
-        </div>
 
-        <!-- 帖子列表 -->
-        <div id="post-list" class="post-list">
-          <div class="loading">加载中</div>
-        </div>
+          <!-- 右栏：侧栏 -->
+          <aside class="side-col" aria-label="侧栏">
+            <button type="button" id="open-post-btn" class="btn btn-primary side-publish-btn hidden">
+              ✍ 发布新帖
+            </button>
 
-        <!-- 分页 -->
-        <div id="pagination" class="pagination"></div>
+            <div class="card side-card">
+              <h3 class="side-card-title">🔥 热门帖子</h3>
+              <div id="hot-list" class="hot-list">
+                <div class="hot-empty">加载中…</div>
+              </div>
+            </div>
+
+            <div class="card side-card">
+              <h3 class="side-card-title">📊 社区统计</h3>
+              <div class="stat-grid">
+                <div class="stat-item">
+                  <div class="stat-num" id="stat-posts">–</div>
+                  <div class="stat-label">帖子</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-num" id="stat-users">–</div>
+                  <div class="stat-label">成员</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-num" id="stat-replies">–</div>
+                  <div class="stat-label">回复</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card side-card about-card">
+              <h3 class="side-card-title">💬 关于本站</h3>
+              <p>GraphFlow 技术交流论坛是面向开发者的技术社区：分享经验、讨论开源、互助答疑。支持 Markdown 与代码高亮，欢迎加入。</p>
+              <div class="about-links">
+                <a href="index.html">浏览帖子</a>
+                <a href="auth.html?mode=register">加入社区</a>
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
     </main>
 
     <!-- ==================== Footer ==================== -->
     <footer class="footer">
       <div class="container">
-        <span>技术交流论坛 · 纯 HTML + JS 实现</span>
+        <span>GraphFlow 技术交流论坛 · 纯 HTML + CSS + 原生 JavaScript 构建</span>
       </div>
     </footer>
   </div>
 
   <!-- ==================== 发帖模态框 ==================== -->
   <div id="post-modal" class="modal-backdrop hidden">
-    <div class="modal">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="post-modal-title">
       <div class="modal-header">
-        <h2 class="modal-title">发布新帖</h2>
+        <h2 class="modal-title" id="post-modal-title">发布新帖</h2>
         <button id="post-modal-close" class="modal-close" aria-label="关闭">×</button>
       </div>
       <div class="modal-body">
@@ -94,7 +176,7 @@
             placeholder="支持 Markdown 语法...&#10;&#10;## 二级标题&#10;&#10;```js&#10;console.log('hello');&#10;```&#10;&#10;[链接](https://example.com)"
           ></textarea>
           <div class="form-hint">
-            支持 Markdown 语法：标题、列表、代码块（含语法高亮）、链接、表格等。<br/>
+            支持 Markdown：标题、列表、代码块（语法高亮）、链接、表格等。<br/>
             快捷键：<kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速发布
           </div>
           <div class="form-error">请输入帖子内容</div>
@@ -113,8 +195,8 @@
   <div id="toast-container" class="toast-container"></div>
 
   <!-- ==================== Scripts ==================== -->
-  <script src="js/api.js?v=6"></script>
+  <script src="js/api.js?v=7"></script>
   <script src="js/image-upload.js?v=2"></script>
-  <script src="js/index.js?v=11"></script>
+  <script src="js/index.js?v=12"></script>
 </body>
 </html>

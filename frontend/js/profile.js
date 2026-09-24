@@ -27,38 +27,54 @@
     if (!actions) return;
     actions.innerHTML = "";
 
-    var homeBtn = API.el("a", {
-      class: "btn btn-ghost btn-sm",
-      attrs: { href: "index.html" },
-    }, ["←", " 首页"]);
-    actions.appendChild(homeBtn);
-
-    if (API.isLoggedIn()) {
-      var username = "";
-      try { username = localStorage.getItem("username") || ""; } catch (e) { /* ignore */ }
-      var nickname = "";
-      try { nickname = localStorage.getItem("nickname") || ""; } catch (e) { /* ignore */ }
-      var displayName = nickname || username;
-      if (displayName) {
-        var avatarHtml = buildAvatarHTML(displayName);
-        var badge = API.el("span", { class: "user-badge" });
-        badge.innerHTML = avatarHtml + " " + escapeHtml(displayName);
-        badge.addEventListener("click", function () {
-          window.location.href = "profile.html";
-        });
-        actions.appendChild(badge);
-      }
-      var logoutBtn = API.el("a", {
-        class: "btn btn-ghost btn-sm",
-        attrs: { href: "javascript:void(0)" },
-      }, ["登出"]);
-      logoutBtn.addEventListener("click", handleLogout);
-      actions.appendChild(logoutBtn);
-    } else {
+    if (!API.isLoggedIn()) {
       // 未登录则重定向
       window.location.replace("auth.html?redirect=" + encodeURIComponent("profile.html"));
       return;
     }
+
+    var username = "";
+    try { username = localStorage.getItem("username") || ""; } catch (e) { /* ignore */ }
+    var nickname = "";
+    try { nickname = localStorage.getItem("nickname") || ""; } catch (e) { /* ignore */ }
+    var role = "";
+    try { role = localStorage.getItem("role") || ""; } catch (e) { /* ignore */ }
+    var displayName = nickname || username;
+
+    // 头像 + 下拉菜单（与首页 / 详情页一致）
+    var wrap = API.el("div", { class: "user-badge-wrap" });
+    var trigger = API.el("div", {
+      class: "user-badge user-badge-trigger",
+      attrs: {
+        title: displayName || "账号菜单",
+        "aria-label": "账号菜单",
+        "aria-haspopup": "true",
+      },
+    });
+    trigger.innerHTML = buildAvatarHTML(displayName || "U");
+
+    var menu = API.el("div", { class: "user-badge-menu" });
+    var headerLine = API.el("div", { class: "user-badge-menu-header" });
+    headerLine.textContent = displayName + (role === "admin" ? " · ADMIN" : "");
+    menu.appendChild(headerLine);
+
+    var profileItem = API.el("a", {
+      class: "user-badge-menu-item",
+      attrs: { href: "profile.html" },
+    }, ["⚙", " 个人中心"]);
+    menu.appendChild(profileItem);
+
+    var logoutItem = API.el("a", {
+      class: "user-badge-menu-item user-badge-menu-danger",
+      attrs: { href: "javascript:void(0)" },
+    }, ["🚪", " 退出登录"]);
+    logoutItem.addEventListener("click", handleLogout);
+    menu.appendChild(logoutItem);
+
+    wrap.appendChild(trigger);
+    wrap.appendChild(menu);
+    API.setupBadgeDropdown(wrap);
+    actions.appendChild(wrap);
   }
 
   /**
@@ -67,7 +83,10 @@
   function buildAvatarHTML(displayName, sizeClass) {
     var avatarUrl = "";
     try { avatarUrl = localStorage.getItem("avatar_url") || ""; } catch (e) { /* ignore */ }
+    var role = "";
+    try { role = localStorage.getItem("role") || ""; } catch (e) { /* ignore */ }
     var cls = sizeClass || "avatar";
+    if (role === "admin") cls += " avatar-admin";
     if (avatarUrl) {
       return '<span class="' + cls + ' avatar-img-wrap"><img class="avatar-img" src="' + escapeAttr(avatarUrl) + '" alt="" /></span>';
     }
@@ -316,6 +335,38 @@
 
     if (hasError) return;
 
+    // 二次确认：修改密码后需重新登录，弹窗确认后再提交
+    openPasswordConfirm();
+  }
+
+  /* ------------------------------------------------------------------------
+   * 修改密码二次确认弹窗
+   * ---------------------------------------------------------------------- */
+  var pendingChangePassword = false;
+
+  function openPasswordConfirm() {
+    var backdrop = dom.passwordConfirmBackdrop;
+    if (!backdrop) {
+      doChangePassword();
+      return;
+    }
+    pendingChangePassword = true;
+    backdrop.classList.remove("hidden");
+    var confirmBtn = document.getElementById("password-confirm-btn");
+    if (confirmBtn) confirmBtn.focus();
+  }
+
+  function closePasswordConfirm() {
+    pendingChangePassword = false;
+    if (dom.passwordConfirmBackdrop) {
+      dom.passwordConfirmBackdrop.classList.add("hidden");
+    }
+  }
+
+  async function doChangePassword() {
+    var oldPwd = dom.oldPasswordInput.value || "";
+    var newPwd = dom.newPasswordInput.value || "";
+
     var btn = dom.changePasswordBtn;
     btn.disabled = true;
     btn.textContent = "修改中…";
@@ -361,11 +412,13 @@
     var text = strengthEl.querySelector(".strength-text");
 
     if (!password) {
+      strengthEl.hidden = true;
       bar.className = "strength-bar";
       bar.style.width = "0%";
       text.textContent = "";
       return;
     }
+    strengthEl.hidden = false;
 
     var score = 0;
     if (password.length >= 8) score++;
@@ -393,16 +446,20 @@
   }
 
   /**
-   * 密码显示/隐藏切换
+   * 密码显示/隐藏切换（眼睛按钮，双态图标）
    */
-  function togglePassword(targetId) {
+  function togglePassword(btn) {
+    var targetId = btn.getAttribute("data-target");
     var input = document.getElementById(targetId);
     if (!input) return;
-    if (input.type === "password") {
-      input.type = "text";
-    } else {
-      input.type = "password";
-    }
+    var show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.setAttribute("aria-pressed", show ? "true" : "false");
+    var eyeOpen = btn.querySelector(".eye-open");
+    var eyeClosed = btn.querySelector(".eye-closed");
+    if (eyeOpen) eyeOpen.hidden = show;
+    if (eyeClosed) eyeClosed.hidden = !show;
+    btn.setAttribute("aria-label", show ? "隐藏密码" : "显示密码");
   }
 
   /* ------------------------------------------------------------------------
@@ -497,6 +554,32 @@
       dom.changePasswordBtn.addEventListener("click", changePassword);
     }
 
+    // 修改密码二次确认弹窗
+    dom.passwordConfirmBackdrop = document.getElementById("password-confirm-backdrop");
+    var pwdConfirmBtn = document.getElementById("password-confirm-btn");
+    var pwdConfirmCancelBtn = document.getElementById("password-confirm-cancel-btn");
+    if (pwdConfirmBtn) {
+      pwdConfirmBtn.addEventListener("click", function () {
+        closePasswordConfirm();
+        doChangePassword();
+      });
+    }
+    if (pwdConfirmCancelBtn) {
+      pwdConfirmCancelBtn.addEventListener("click", closePasswordConfirm);
+    }
+    if (dom.passwordConfirmBackdrop) {
+      dom.passwordConfirmBackdrop.addEventListener("click", function (e) {
+        if (e.target === dom.passwordConfirmBackdrop) closePasswordConfirm();
+      });
+    }
+    // ESC 关闭弹窗
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && dom.passwordConfirmBackdrop &&
+          !dom.passwordConfirmBackdrop.classList.contains("hidden")) {
+        closePasswordConfirm();
+      }
+    });
+
     // 密码强度实时反馈
     if (dom.newPasswordInput) {
       dom.newPasswordInput.addEventListener("input", function () {
@@ -508,8 +591,7 @@
     var toggles = document.querySelectorAll(".password-toggle");
     toggles.forEach(function (btn) {
       btn.addEventListener("click", function () {
-        var targetId = btn.getAttribute("data-target");
-        togglePassword(targetId);
+        togglePassword(btn);
       });
     });
 

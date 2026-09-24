@@ -216,11 +216,7 @@
     if (!actions) return;
     actions.innerHTML = "";
 
-    var homeLink = API.el("a", {
-      class: "btn btn-ghost btn-sm",
-      attrs: { href: "index.html" },
-    }, ["← ", API.el("span", { class: "btn-text" }, ["首页"])]);
-    actions.appendChild(homeLink);
+    // 返回入口由 header Logo 与页面 back-bar 承担，导航区仅保留账号相关操作
 
     if (API.isLoggedIn()) {
       var me = getCurrentUser();
@@ -321,7 +317,7 @@
     var isAdmin = post.role === "admin";
 
     titleEl.textContent = post.title || "（无标题）";
-    document.title = (post.title || "帖子详情") + " - 技术论坛";
+    document.title = (post.title || "帖子详情") + " - GraphFlow 技术交流论坛";
 
     // 主贴卡片：作者即楼主，佩戴主色左边框
     var wrapper = dom.postDetailWrapper;
@@ -677,10 +673,12 @@
       attrs: { type: "button" },
     }, ["发布回复"]);
     var foot = API.el("div", { class: "inline-reply-foot" }, [
-      API.el("span", {
-        class: "inline-reply-hint",
-        text: "<kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速提交",
-      }),
+      API.el("span", { class: "inline-reply-hint" }, [
+        API.el("kbd", { text: "Ctrl/Cmd" }),
+        " + ",
+        API.el("kbd", { text: "Enter" }),
+        " 快速提交",
+      ]),
       btn,
     ]);
 
@@ -907,11 +905,11 @@
       if (prompt) {
         prompt.classList.remove("hidden");
         prompt.innerHTML = "";
-        prompt.appendChild(API.el("span", { text: "登录后可参与讨论" }));
+        prompt.appendChild(API.el("span", { text: "登录后可参与讨论，支持 Markdown 与图片" }));
         prompt.appendChild(API.el("a", {
           class: "btn btn-primary btn-sm",
           attrs: { href: "auth.html?redirect=" + encodeURIComponent(window.location.href) },
-          text: "去登录",
+          text: "登录后参与讨论",
         }));
       }
       return;

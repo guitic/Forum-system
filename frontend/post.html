@@ -6,10 +6,10 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="帖子详情 - 技术交流论坛" />
-  <title>帖子详情 - 技术论坛</title>
+  <meta name="description" content="帖子详情 - GraphFlow 技术交流论坛" />
+  <title>帖子详情 - GraphFlow 技术交流论坛</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
-  <link rel="stylesheet" href="css/style.css?v=13" />
+  <link rel="stylesheet" href="css/style.css?v=14" />
   <!-- marked.js - Markdown 解析 -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <!-- highlight.js - 代码高亮（浏览器预构建版，含所有常用语言） -->
@@ -21,21 +21,33 @@
     <!-- ==================== Header ==================== -->
     <header class="header">
       <div class="container header-inner">
-        <a href="index.html" class="logo">
-          <span class="logo-mark">T</span>
-          <span>技术论坛</span>
+        <a href="index.html" class="logo" aria-label="GraphFlow 技术交流论坛 首页">
+          <span class="logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 2-2zm3 5h10v1.6H7V9zm0 4h7v1.6H7V13z"/></svg>
+          </span>
+          <span>GraphFlow 论坛</span>
         </a>
-        <div class="nav-actions" id="nav-actions">
-          <!-- 由 post.js 动态渲染 -->
-        </div>
+
+        <div class="header-spacer"></div>
+
+        <!-- 返回首页 / 登录 / 用户下拉（由 post.js 动态渲染） -->
+        <div class="nav-actions" id="nav-actions"></div>
       </div>
     </header>
 
     <!-- ==================== Main ==================== -->
     <main>
       <div class="container">
+        <!-- 返回条 -->
+        <div class="back-bar">
+          <a href="index.html" class="back-link">← 返回首页</a>
+        </div>
+
         <!-- 加载中 -->
-        <div id="post-loading" class="loading" style="padding:80px 20px">正在加载帖子…</div>
+        <div id="post-loading" class="loading">正在加载帖子…</div>
+
+        <!-- 帖子不存在 / 加载失败 -->
+        <div id="post-not-found" class="empty-state hidden"></div>
 
         <!-- 帖子详情 -->
         <div id="post-detail-wrapper" class="hidden">
@@ -43,113 +55,117 @@
             <div class="post-detail-head">
               <div class="post-detail-head-main">
                 <h1 id="post-title" class="post-detail-title"></h1>
-                <!-- 数据到达前的浏览量占位（模块 3），渲染后由 post.js 替换 -->
-                <div id="post-meta" class="post-detail-meta">
-                  <span class="meta-views meta-views-placeholder">👁 -- 浏览</span>
-                </div>
+                <!-- 元信息：头像 / 昵称 / 楼主徽标 / 时间 / 回复数 / 浏览数（由 post.js 渲染） -->
+                <div id="post-meta" class="post-detail-meta"></div>
               </div>
+              <!-- 编辑 / 删除（作者或管理员可见，由 post.js 渲染） -->
               <div id="post-actions" class="post-actions-bar"></div>
             </div>
-            <div id="post-content" class="md-content"></div>
-            <!-- 编辑标记（模块 1：updated_at 非空时显示） -->
+
+            <!-- 编辑标记：编辑于 X 前 -->
             <div id="post-edited-mark" class="edited-mark hidden"></div>
 
-            <!-- 帖子编辑表单（模块 1：作者/管理员内联编辑） -->
-            <div id="post-edit-form" class="edit-form hidden">
-              <div class="form-group" id="post-edit-title-group">
+            <!-- Markdown 正文 -->
+            <div id="post-content" class="md-content"></div>
+
+            <!-- 帖子内联编辑表单（作者 / 管理员） -->
+            <form id="post-edit-form" class="post-edit-form hidden" novalidate>
+              <div class="form-group">
                 <label class="form-label" for="post-edit-title">
                   标题 <span class="required">*</span>
                 </label>
                 <input
-                  id="post-edit-title"
-                  class="form-control"
                   type="text"
-                  maxlength="200"
-                  placeholder="帖子标题"
+                  id="post-edit-title"
+                  class="form-control post-edit-title"
+                  maxlength="100"
+                  autocomplete="off"
                 />
               </div>
-              <div class="form-group" id="post-edit-content-group">
+              <div class="form-group">
                 <label class="form-label" for="post-edit-content">
-                  内容 <span class="required">*</span>
+                  正文 <span class="required">*</span>
                 </label>
                 <textarea
                   id="post-edit-content"
-                  class="form-control md-editor"
-                  placeholder="帖子内容，支持 Markdown 语法"
+                  class="form-control md-editor post-edit-content"
+                  rows="10"
                 ></textarea>
+                <div class="form-hint">
+                  快捷键：<kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 保存 · <kbd>Esc</kbd> 取消
+                </div>
               </div>
-              <div class="edit-form-actions">
-                <span id="post-edit-error" class="edit-error" role="alert"></span>
-                <span class="edit-form-hint">
-                  <kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速保存
-                </span>
-                <button id="post-edit-cancel-btn" class="btn" type="button">取消</button>
-                <button id="post-edit-save-btn" class="btn btn-primary" type="button">保存</button>
+              <div id="post-edit-error" class="post-edit-error" role="alert"></div>
+              <div class="modal-footer" style="padding: 10px 0 0;">
+                <button type="button" id="post-edit-cancel-btn" class="btn">取消</button>
+                <button type="button" id="post-edit-save-btn" class="btn btn-primary">保存</button>
               </div>
-            </div>
+            </form>
           </article>
 
-          <!-- 回复区域 -->
-          <section class="replies-section">
-            <h2 class="replies-title">
-              回复 <span id="reply-count" class="count">0</span>
-              <span class="hint">· 支持楼中楼，最多 3 层</span>
-            </h2>
+          <!-- ==================== 回复区 ==================== -->
+          <section class="card reply-section" aria-label="回复区">
+            <div class="reply-section-head">
+              <h2 class="reply-section-title">
+                回复
+                <span class="reply-count-badge"><span id="reply-count">0</span> 条</span>
+              </h2>
+              <span class="reply-section-hint">支持楼中楼，最多 3 层</span>
+            </div>
 
-            <!-- 回复列表 -->
+            <!-- 回复树（V3 楼中楼，由 post.js 递归渲染） -->
             <div id="reply-list" class="reply-list"></div>
 
-            <!-- 登录提示（未登录时显示） -->
-            <div id="reply-login-prompt" class="login-prompt hidden"></div>
-
-            <!-- 回复表单（已登录时显示） -->
-            <div id="reply-form" class="reply-form hidden">
-              <div class="form-card">
-                <div class="form-group" id="reply-group">
-                  <label class="form-label" for="reply-content">
-                    发表回复 <span class="required">*</span>
-                  </label>
-                  <textarea
-                    id="reply-content"
-                    class="form-control md-editor"
-                    placeholder="发表你的观点，支持 Markdown（回复某条回复请点该条下方的「回复」）"
-                  ></textarea>
-                  <div class="form-hint">
-                    支持 Markdown 语法 · <kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速提交
-                  </div>
-                  <div class="form-error">请输入回复内容</div>
-                </div>
-                <!-- 图片上传区（一级回复） -->
-                <div id="reply-images"></div>
-                <div class="reply-form-actions">
-                  <span class="reply-form-hint">一级回复 · 支持 Markdown 与图片</span>
-                  <button id="reply-submit-btn" class="btn btn-primary">发布回复</button>
+            <!-- 一级回复表单（已登录显示） -->
+            <form id="reply-form" class="reply-form hidden" novalidate>
+              <div class="form-group" id="reply-group">
+                <label class="form-label" for="reply-content">发表回复</label>
+                <textarea
+                  id="reply-content"
+                  class="form-control md-editor"
+                  rows="4"
+                  maxlength="5000"
+                  placeholder="支持 Markdown 语法，文明理性发言…"
+                ></textarea>
+                <div class="form-hint">
+                  支持 Markdown：标题、列表、代码块（语法高亮）、链接、表格等
                 </div>
               </div>
-            </div>
+              <!-- 图片上传区（一级回复） -->
+              <div id="reply-images"></div>
+              <div class="reply-form-foot">
+                <span class="reply-form-hint">
+                  <kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速发布
+                </span>
+                <button type="button" id="reply-submit-btn" class="btn btn-primary">发布回复</button>
+              </div>
+            </form>
+
+            <!-- 未登录提示（由 post.js 填充文案与登录按钮） -->
+            <div id="reply-login-prompt" class="reply-login-prompt hidden"></div>
           </section>
         </div>
-
-        <!-- 未找到 -->
-        <div id="post-not-found" class="empty-state hidden"></div>
       </div>
     </main>
 
     <!-- ==================== Footer ==================== -->
     <footer class="footer">
       <div class="container">
-        <span>技术交流论坛 · 纯 HTML + JS 实现</span>
+        <span>GraphFlow 技术交流论坛 · 纯 HTML + CSS + 原生 JavaScript 构建</span>
       </div>
     </footer>
   </div>
 
   <!-- ==================== 删除确认弹窗 ==================== -->
-  <div id="confirm-backdrop" class="confirm-backdrop hidden">
-    <div class="confirm-dialog">
-      <div class="confirm-icon">⚠</div>
-      <h3 class="confirm-title">确认删除</h3>
-      <p id="confirm-message" class="confirm-message"></p>
-      <div class="confirm-actions">
+  <div id="confirm-backdrop" class="modal-backdrop confirm-backdrop hidden">
+    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <div class="modal-header">
+        <h2 class="modal-title" id="confirm-title">确认删除</h2>
+      </div>
+      <div class="confirm-body">
+        <p class="confirm-message" id="confirm-message"></p>
+      </div>
+      <div class="modal-footer">
         <button id="confirm-cancel-btn" class="btn">取消</button>
         <button id="confirm-delete-btn" class="btn btn-danger">确认删除</button>
       </div>
@@ -162,6 +178,6 @@
   <!-- ==================== Scripts ==================== -->
   <script src="js/api.js?v=7"></script>
   <script src="js/image-upload.js?v=2"></script>
-  <script src="js/post.js?v=14"></script>
+  <script src="js/post.js?v=13"></script>
 </body>
 </html>

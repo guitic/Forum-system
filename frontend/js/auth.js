@@ -73,6 +73,8 @@
     dom.loginPanel.classList.toggle("hidden", mode !== "login");
     dom.registerPanel.classList.toggle("hidden", mode !== "register");
     clearFormErrors();
+    // 强度条随面板切换重新计算（密码为空时自动隐藏）
+    updatePasswordStrength();
   }
 
   /* ------------------------------------------------------------------------
@@ -116,6 +118,75 @@
     group.classList.add("has-error");
     var errEl = group.querySelector(".form-error");
     if (errEl) errEl.textContent = message;
+  }
+
+  /* ------------------------------------------------------------------------
+   * 密码可见性切换（眼睛按钮）
+   * ---------------------------------------------------------------------- */
+  function bindPasswordToggles() {
+    var toggles = document.querySelectorAll(".password-toggle");
+    Array.prototype.forEach.call(toggles, function (btn) {
+      btn.addEventListener("click", function () {
+        var targetId = btn.getAttribute("data-target");
+        var input = document.getElementById(targetId);
+        if (!input) return;
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.setAttribute("aria-pressed", show ? "true" : "false");
+        var eyeOpen = btn.querySelector(".eye-open");
+        var eyeClosed = btn.querySelector(".eye-closed");
+        if (eyeOpen) eyeOpen.hidden = show;
+        if (eyeClosed) eyeClosed.hidden = !show;
+        btn.setAttribute("aria-label", show ? "隐藏密码" : "显示密码");
+        input.focus();
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------------------
+   * 注册密码强度条
+   * ---------------------------------------------------------------------- */
+  function scorePassword(v) {
+    var s = v || "";
+    var score = 0;
+    if (s.length >= 8) score += 1;
+    if (s.length >= 12) score += 1;
+    if (/[a-zA-Z]/.test(s) && /\d/.test(s)) score += 1;
+    if (/[^\w]/.test(s)) score += 1;
+    return score; // 0-4
+  }
+
+  function updatePasswordStrength() {
+    var wrap = document.getElementById("register-password-strength");
+    var input = dom.regPassword;
+    if (!wrap || !input) return;
+
+    var value = input.value || "";
+    if (!value) {
+      wrap.hidden = true;
+      return;
+    }
+    wrap.hidden = false;
+
+    var score = scorePassword(value);
+    var bar = wrap.querySelector(".strength-bar");
+    var text = wrap.querySelector(".strength-text");
+    var levels = [
+      { w: "20%", c: "var(--danger)", t: "弱" },
+      { w: "45%", c: "var(--warning)", t: "中" },
+      { w: "70%", c: "var(--warning)", t: "良" },
+      { w: "85%", c: "var(--success)", t: "强" },
+      { w: "100%", c: "var(--success)", t: "很强" },
+    ];
+    var lv = levels[Math.max(0, Math.min(4, score))];
+    if (bar) {
+      bar.style.width = lv.w;
+      bar.style.background = lv.c;
+    }
+    if (text) {
+      text.textContent = lv.t;
+      text.style.color = lv.c;
+    }
   }
 
   /* ------------------------------------------------------------------------
@@ -237,7 +308,7 @@
     try {
       var u = new URL(r, window.location.origin);
       if (u.origin !== window.location.origin) return defaultRedirect;
-      if (!/^(index|post|auth)\.html/.test(u.pathname.split("/").pop())) return defaultRedirect;
+      if (!/^(index|post|auth|profile)\.html/.test(u.pathname.split("/").pop())) return defaultRedirect;
       // 保留 hash（如 post.html?id=1#reply），登录回跳后详情页可据此聚焦回复框
       return u.pathname + u.search + u.hash;
     } catch (e) {
@@ -316,6 +387,14 @@
       });
     }
     if (dom.registerSubmitBtn) dom.registerSubmitBtn.addEventListener("click", doRegister);
+
+    // 密码可见性切换（登录 / 注册 / 确认密码）
+    bindPasswordToggles();
+
+    // 注册密码实时强度
+    if (dom.regPassword) {
+      dom.regPassword.addEventListener("input", updatePasswordStrength);
+    }
 
     // 回车提交
     [dom.loginUsername, dom.loginPassword, dom.regUsername, dom.regPassword, dom.regConfirm].forEach(function (inp) {

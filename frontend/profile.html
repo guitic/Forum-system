@@ -6,20 +6,23 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="用户中心 - 技术交流论坛" />
-  <title>用户中心 - 技术论坛</title>
+  <meta name="description" content="用户中心 - GraphFlow 技术交流论坛" />
+  <title>用户中心 - GraphFlow 技术交流论坛</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
-  <link rel="stylesheet" href="css/style.css?v=10" />
+  <link rel="stylesheet" href="css/style.css?v=14" />
 </head>
 <body>
   <div class="app">
     <!-- ==================== Header ==================== -->
     <header class="header">
       <div class="container header-inner">
-        <a href="index.html" class="logo">
-          <span class="logo-mark">T</span>
-          <span>技术论坛</span>
+        <a href="index.html" class="logo" aria-label="返回 GraphFlow 技术交流论坛 首页">
+          <span class="logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 2-2zm3 5h10v1.6H7V9zm0 4h7v1.6H7V13z"/></svg>
+          </span>
+          <span>GraphFlow 论坛</span>
         </a>
+        <div class="header-spacer"></div>
         <div class="nav-actions" id="nav-actions">
           <!-- 由 profile.js 动态渲染 -->
         </div>
@@ -30,18 +33,18 @@
     <main>
       <div class="container">
         <!-- 加载中 -->
-        <div id="profile-loading" class="loading" style="padding:80px 20px">正在加载资料…</div>
+        <div id="profile-loading" class="loading">正在加载资料…</div>
 
         <!-- 个人资料 -->
         <div id="profile-wrapper" class="hidden">
-          <!-- 用户信息卡片 -->
+          <!-- 顶部资料卡 -->
           <div class="profile-header card">
             <div class="profile-avatar-section">
-              <!-- 头像预览 -->
+              <!-- 头像预览（hover 右上角浮出更换按钮） -->
               <div class="profile-avatar-wrap">
                 <div id="profile-avatar" class="profile-avatar"></div>
                 <label for="avatar-upload-input" class="profile-avatar-upload-btn" title="更换头像">
-                  <span class="upload-icon">📷</span>
+                  <span class="upload-icon" aria-hidden="true">📷</span>
                   <span class="upload-text">更换头像</span>
                 </label>
                 <input type="file" id="avatar-upload-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none" />
@@ -71,9 +74,9 @@
             </div>
           </div>
 
-          <!-- 资料编辑区域 -->
+          <!-- 资料编辑区域（双栏，窄屏堆叠） -->
           <div class="profile-edit-section">
-            <!-- 昵称与简介 -->
+            <!-- 个人信息 -->
             <div class="profile-edit-card card">
               <h2 class="edit-section-title">个人信息</h2>
 
@@ -85,6 +88,7 @@
                   class="form-control"
                   placeholder="设置一个友好的昵称（最多 50 字符）"
                   maxlength="50"
+                  autocomplete="nickname"
                 />
                 <div class="form-hint" id="nickname-hint">昵称会显示在帖子和回复中</div>
                 <div class="form-error"></div>
@@ -126,7 +130,11 @@
                     placeholder="请输入当前密码"
                     autocomplete="current-password"
                   />
-                  <button type="button" class="password-toggle" data-target="old-password-input" title="显示/隐藏">👁</button>
+                  <button type="button" class="password-toggle" data-target="old-password-input"
+                          aria-label="显示或隐藏密码" aria-pressed="false" title="显示 / 隐藏密码">
+                    <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                    <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M2.1 3.5 1 4.6l2.9 2.9C2.3 8.8 1.3 10.3 1 12c1.7 4.4 6 7.5 11 7.5 1.6 0 3.1-.3 4.4-.9l3.5 3.5 1.1-1.1L2.1 3.5zM9.5 10.9l3.6 3.6c-.3.1-.7.2-1.1.2a2.7 2.7 0 0 1-2.7-2.7c0-.4.1-.8.2-1.1zM12 7c2.8 0 5.1 1.9 5.8 4.4.1.2.1.5.2.7l1.5-1.5c.3.4.5.9.5 1.4 0 .5-.2 1-.5 1.4L21 14.9c.6-1 .9-1.9 1-2.9-1.7-4.4-6-7.5-11-7.5-.6 0-1.1 0-1.6.1l2 2c.5-.1 1-.1 1.6-.1z"/></svg>
+                  </button>
                 </div>
                 <div class="form-error"></div>
               </div>
@@ -143,10 +151,14 @@
                     placeholder="至少 8 位，需含字母、数字和特殊字符"
                     autocomplete="new-password"
                   />
-                  <button type="button" class="password-toggle" data-target="new-password-input" title="显示/隐藏">👁</button>
+                  <button type="button" class="password-toggle" data-target="new-password-input"
+                          aria-label="显示或隐藏密码" aria-pressed="false" title="显示 / 隐藏密码">
+                    <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                    <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M2.1 3.5 1 4.6l2.9 2.9C2.3 8.8 1.3 10.3 1 12c1.7 4.4 6 7.5 11 7.5 1.6 0 3.1-.3 4.4-.9l3.5 3.5 1.1-1.1L2.1 3.5zM9.5 10.9l3.6 3.6c-.3.1-.7.2-1.1.2a2.7 2.7 0 0 1-2.7-2.7c0-.4.1-.8.2-1.1zM12 7c2.8 0 5.1 1.9 5.8 4.4.1.2.1.5.2.7l1.5-1.5c.3.4.5.9.5 1.4 0 .5-.2 1-.5 1.4L21 14.9c.6-1 .9-1.9 1-2.9-1.7-4.4-6-7.5-11-7.5-.6 0-1.1 0-1.6.1l2 2c.5-.1 1-.1 1.6-.1z"/></svg>
+                  </button>
                 </div>
-                <div class="password-strength" id="password-strength">
-                  <div class="strength-bar"></div>
+                <div class="password-strength" id="password-strength" hidden>
+                  <div class="strength-track"><div class="strength-bar"></div></div>
                   <span class="strength-text"></span>
                 </div>
                 <div class="form-hint">
@@ -167,7 +179,11 @@
                     placeholder="再次输入新密码"
                     autocomplete="new-password"
                   />
-                  <button type="button" class="password-toggle" data-target="confirm-password-input" title="显示/隐藏">👁</button>
+                  <button type="button" class="password-toggle" data-target="confirm-password-input"
+                          aria-label="显示或隐藏密码" aria-pressed="false" title="显示 / 隐藏密码">
+                    <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                    <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M2.1 3.5 1 4.6l2.9 2.9C2.3 8.8 1.3 10.3 1 12c1.7 4.4 6 7.5 11 7.5 1.6 0 3.1-.3 4.4-.9l3.5 3.5 1.1-1.1L2.1 3.5zM9.5 10.9l3.6 3.6c-.3.1-.7.2-1.1.2a2.7 2.7 0 0 1-2.7-2.7c0-.4.1-.8.2-1.1zM12 7c2.8 0 5.1 1.9 5.8 4.4.1.2.1.5.2.7l1.5-1.5c.3.4.5.9.5 1.4 0 .5-.2 1-.5 1.4L21 14.9c.6-1 .9-1.9 1-2.9-1.7-4.4-6-7.5-11-7.5-.6 0-1.1 0-1.6.1l2 2c.5-.1 1-.1 1.6-.1z"/></svg>
+                  </button>
                 </div>
                 <div class="form-error"></div>
               </div>
@@ -187,16 +203,32 @@
     <!-- ==================== Footer ==================== -->
     <footer class="footer">
       <div class="container">
-        <span>技术交流论坛 · 纯 HTML + JS 实现</span>
+        <span>GraphFlow 技术交流论坛 · 纯 HTML + CSS + 原生 JavaScript 构建</span>
       </div>
     </footer>
+  </div>
+
+  <!-- ==================== 修改密码二次确认弹窗 ==================== -->
+  <div id="password-confirm-backdrop" class="modal-backdrop hidden">
+    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="password-confirm-title" aria-describedby="password-confirm-message">
+      <div class="modal-header">
+        <h2 class="modal-title" id="password-confirm-title">确认修改密码</h2>
+      </div>
+      <div class="confirm-body">
+        <p class="confirm-message" id="password-confirm-message">修改密码后需要使用新密码重新登录，确定要继续吗？</p>
+      </div>
+      <div class="modal-footer">
+        <button id="password-confirm-cancel-btn" class="btn">取消</button>
+        <button id="password-confirm-btn" class="btn btn-primary">确认修改</button>
+      </div>
+    </div>
   </div>
 
   <!-- ==================== Toast ==================== -->
   <div id="toast-container" class="toast-container"></div>
 
   <!-- ==================== Scripts ==================== -->
-  <script src="js/api.js?v=6"></script>
-  <script src="js/profile.js?v=2"></script>
+  <script src="js/api.js?v=7"></script>
+  <script src="js/profile.js?v=3"></script>
 </body>
 </html>

@@ -6,20 +6,23 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="登录 / 注册 - 技术交流论坛" />
-  <title>登录 / 注册 - 技术论坛</title>
+  <meta name="description" content="登录 / 注册 - GraphFlow 技术交流论坛" />
+  <title>登录 / 注册 - GraphFlow 技术交流论坛</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
-  <link rel="stylesheet" href="css/style.css?v=10" />
+  <link rel="stylesheet" href="css/style.css?v=14" />
 </head>
 <body>
   <div class="app">
     <!-- ==================== Header ==================== -->
     <header class="header">
       <div class="container header-inner">
-        <span class="logo">
-          <span class="logo-mark">T</span>
-          <span>技术论坛</span>
-        </span>
+        <a href="index.html" class="logo" aria-label="返回 GraphFlow 技术交流论坛 首页">
+          <span class="logo-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 2-2zm3 5h10v1.6H7V9zm0 4h7v1.6H7V13z"/></svg>
+          </span>
+          <span>GraphFlow 论坛</span>
+        </a>
+        <div class="header-spacer"></div>
         <div class="nav-actions" id="nav-actions">
           <!-- 由 auth.js 动态渲染 -->
         </div>
@@ -31,16 +34,19 @@
       <div class="container">
         <div class="auth-wrap">
           <div class="card auth-card">
+            <!-- 品牌区 -->
             <div class="brand">
-              <div class="brand-logo">T</div>
+              <div class="brand-logo" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-5 4V6a2 2 0 0 1 2-2zm3 5h10v1.6H7V9zm0 4h7v1.6H7V13z"/></svg>
+              </div>
               <h1>欢迎来到技术论坛</h1>
-              <p>登录或注册账号，开始你的技术探索之旅</p>
+              <p>登录或注册账号，与开发者分享技术、共同成长</p>
             </div>
 
-            <!-- Tab 切换 -->
-            <div class="auth-tabs">
-              <button class="auth-tab active" data-mode="login" type="button">登录</button>
-              <button class="auth-tab" data-mode="register" type="button">注册</button>
+            <!-- Tab 切换（胶囊样式） -->
+            <div class="auth-tabs" role="tablist" aria-label="登录 / 注册切换">
+              <button class="auth-tab active" data-mode="login" type="button" role="tab" aria-selected="true">登录</button>
+              <button class="auth-tab" data-mode="register" type="button" role="tab" aria-selected="false">注册</button>
             </div>
 
             <!-- 登录表单 -->
@@ -64,14 +70,21 @@
                   <label class="form-label" for="login-password">
                     密码 <span class="required">*</span>
                   </label>
-                  <input
-                    type="password"
-                    id="login-password"
-                    class="form-control"
-                    placeholder="请输入密码"
-                    autocomplete="current-password"
-                    maxlength="72"
-                  />
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="login-password"
+                      class="form-control"
+                      placeholder="请输入密码"
+                      autocomplete="current-password"
+                      maxlength="72"
+                    />
+                    <button type="button" class="password-toggle" data-target="login-password"
+                            aria-label="显示或隐藏密码" aria-pressed="false" title="显示 / 隐藏密码">
+                      <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                      <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M2.1 3.5 1 4.6l2.9 2.9C2.3 8.8 1.3 10.3 1 12c1.7 4.4 6 7.5 11 7.5 1.6 0 3.1-.3 4.4-.9l3.5 3.5 1.1-1.1L2.1 3.5zM9.5 10.9l3.6 3.6c-.3.1-.7.2-1.1.2a2.7 2.7 0 0 1-2.7-2.7c0-.4.1-.8.2-1.1zM12 7c2.8 0 5.1 1.9 5.8 4.4.1.2.1.5.2.7l1.5-1.5c.3.4.5.9.5 1.4 0 .5-.2 1-.5 1.4L21 14.9c.6-1 .9-1.9 1-2.9-1.7-4.4-6-7.5-11-7.5-.6 0-1.1 0-1.6.1l2 2c.5-.1 1-.1 1.6-.1z"/></svg>
+                    </button>
+                  </div>
                   <div class="form-error">请输入密码</div>
                 </div>
                 <button id="login-submit-btn" class="btn btn-primary btn-lg btn-block" type="submit">
@@ -104,29 +117,48 @@
                   <label class="form-label" for="register-password">
                     密码 <span class="required">*</span>
                   </label>
-                  <input
-                    type="password"
-                    id="register-password"
-                    class="form-control"
-                    placeholder="至少8位，需含字母、数字和特殊字符"
-                    autocomplete="new-password"
-                    minlength="8"
-                    maxlength="72"
-                  />
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="register-password"
+                      class="form-control"
+                      placeholder="至少8位，需含字母、数字和特殊字符"
+                      autocomplete="new-password"
+                      minlength="8"
+                      maxlength="72"
+                    />
+                    <button type="button" class="password-toggle" data-target="register-password"
+                            aria-label="显示或隐藏密码" aria-pressed="false" title="显示 / 隐藏密码">
+                      <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                      <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M2.1 3.5 1 4.6l2.9 2.9C2.3 8.8 1.3 10.3 1 12c1.7 4.4 6 7.5 11 7.5 1.6 0 3.1-.3 4.4-.9l3.5 3.5 1.1-1.1L2.1 3.5zM9.5 10.9l3.6 3.6c-.3.1-.7.2-1.1.2a2.7 2.7 0 0 1-2.7-2.7c0-.4.1-.8.2-1.1zM12 7c2.8 0 5.1 1.9 5.8 4.4.1.2.1.5.2.7l1.5-1.5c.3.4.5.9.5 1.4 0 .5-.2 1-.5 1.4L21 14.9c.6-1 .9-1.9 1-2.9-1.7-4.4-6-7.5-11-7.5-.6 0-1.1 0-1.6.1l2 2c.5-.1 1-.1 1.6-.1z"/></svg>
+                    </button>
+                  </div>
+                  <!-- 实时强度条 -->
+                  <div class="password-strength" id="register-password-strength" hidden>
+                    <div class="strength-track"><div class="strength-bar"></div></div>
+                    <span class="strength-text">弱</span>
+                  </div>
                   <div class="form-error">请输入密码</div>
                 </div>
                 <div class="form-group" id="register-confirm-group">
                   <label class="form-label" for="register-confirm">
                     确认密码 <span class="required">*</span>
                   </label>
-                  <input
-                    type="password"
-                    id="register-confirm"
-                    class="form-control"
-                    placeholder="再次输入密码"
-                    autocomplete="new-password"
-                    maxlength="72"
-                  />
+                  <div class="password-input-wrap">
+                    <input
+                      type="password"
+                      id="register-confirm"
+                      class="form-control"
+                      placeholder="再次输入密码"
+                      autocomplete="new-password"
+                      maxlength="72"
+                    />
+                    <button type="button" class="password-toggle" data-target="register-confirm"
+                            aria-label="显示或隐藏密码" aria-pressed="false" title="显示 / 隐藏密码">
+                      <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>
+                      <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M2.1 3.5 1 4.6l2.9 2.9C2.3 8.8 1.3 10.3 1 12c1.7 4.4 6 7.5 11 7.5 1.6 0 3.1-.3 4.4-.9l3.5 3.5 1.1-1.1L2.1 3.5zM9.5 10.9l3.6 3.6c-.3.1-.7.2-1.1.2a2.7 2.7 0 0 1-2.7-2.7c0-.4.1-.8.2-1.1zM12 7c2.8 0 5.1 1.9 5.8 4.4.1.2.1.5.2.7l1.5-1.5c.3.4.5.9.5 1.4 0 .5-.2 1-.5 1.4L21 14.9c.6-1 .9-1.9 1-2.9-1.7-4.4-6-7.5-11-7.5-.6 0-1.1 0-1.6.1l2 2c.5-.1 1-.1 1.6-.1z"/></svg>
+                    </button>
+                  </div>
                   <div class="form-error">请再次输入密码</div>
                 </div>
                 <button id="register-submit-btn" class="btn btn-primary btn-lg btn-block" type="submit">
@@ -142,7 +174,7 @@
     <!-- ==================== Footer ==================== -->
     <footer class="footer">
       <div class="container">
-        <span>技术交流论坛 · 纯 HTML + JS 实现</span>
+        <span>GraphFlow 技术交流论坛 · 纯 HTML + CSS + 原生 JavaScript 构建</span>
       </div>
     </footer>
   </div>
@@ -151,7 +183,7 @@
   <div id="toast-container" class="toast-container"></div>
 
   <!-- ==================== Scripts ==================== -->
-  <script src="js/api.js?v=6"></script>
-  <script src="js/auth.js?v=5"></script>
+  <script src="js/api.js?v=7"></script>
+  <script src="js/auth.js?v=6"></script>
 </body>
 </html>

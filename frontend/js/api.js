@@ -263,6 +263,17 @@
   };
 
   /**
+   * 获取社区统计数据（帖子 / 成员 / 回复总数）
+   * @returns {Promise<{posts:number, users:number, replies:number}>}
+   */
+  API.getStats = function () {
+    return request("/api/stats", {
+      method: "GET",
+      auth: false,
+    });
+  };
+
+  /**
    * 获取帖子详情
    * @param {number|string} id
    * @returns {Promise<{post:Object, replies:Array, reply_tree:Array, reply_count:number}>}
