@@ -8,11 +8,13 @@
 
 from datetime import datetime, timezone
 
+import sqlalchemy as sa
 from flask import Blueprint, jsonify, request
 
 from config import config
 from models import Post, Reply, db
-from routes.posts import _reply_node, require_auth
+from services.reply_tree import build_reply_node
+from utils.security import require_auth
 
 replies_bp = Blueprint("replies", __name__, url_prefix="/api/replies")
 
@@ -24,31 +26,50 @@ def _collect_descendant_ids(root_id, post_id):
     （replies.parent_id → replies.id），应用层不再批量删除子孙，
     避免与数据库级联重复操作。
 
-    单次查询该帖全部回复的 (id, parent_id)，在内存中构建父子映射后
-    迭代遍历，避免逐层查询的 N+1 问题（查询次数与嵌套深度无关）。
-    含环保护，避免脏数据导致死循环。
-    """
-    rows = (
-        db.session.query(Reply.id, Reply.parent_id)
-        .filter(Reply.post_id == post_id)
-        .all()
-    )
-    children_map = {}
-    for rid, pid in rows:
-        if pid is not None:
-            children_map.setdefault(pid, []).append(rid)
+    性能优化：原实现一次性拉取该帖全部 (id, parent_id) 再在内存建树，
+    大帖下只为算一个计数却付出 O(n) 查询与内存。现改为递归 CTE，
+    只遍历该根节点的子树，复杂度与子树规模成正比。
 
-    to_delete = {root_id}
-    frontier = [root_id]
-    while frontier:
-        next_frontier = []
-        for rid in frontier:
-            for kid in children_map.get(rid, []):
-                if kid not in to_delete:
-                    to_delete.add(kid)
-                    next_frontier.append(kid)
-        frontier = next_frontier
-    return to_delete
+    兼容性：SQLite 3.8.3+ / MariaDB 10.2+ / MySQL 8.0+ 均支持 WITH RECURSIVE。
+    若方言不支持（或 CTE 执行异常），回退到原内存算法，保证功能不降级。
+    """
+    try:
+        cte_sql = sa.text(
+            """
+            WITH RECURSIVE subtree(id) AS (
+                SELECT :root_id
+                UNION ALL
+                SELECT r.id FROM replies r JOIN subtree s ON r.parent_id = s.id
+            )
+            SELECT id FROM subtree
+            """
+        )
+        rows = db.session.execute(cte_sql, {"root_id": root_id}).fetchall()
+        return {row[0] for row in rows}
+    except Exception:
+        # 回退：方言不支持递归 CTE 或语句异常时，用内存版本兜底
+        db.session.rollback()
+        rows = (
+            db.session.query(Reply.id, Reply.parent_id)
+            .filter(Reply.post_id == post_id)
+            .all()
+        )
+        children_map = {}
+        for rid, pid in rows:
+            if pid is not None:
+                children_map.setdefault(pid, []).append(rid)
+
+        to_delete = {root_id}
+        frontier = [root_id]
+        while frontier:
+            next_frontier = []
+            for rid in frontier:
+                for kid in children_map.get(rid, []):
+                    if kid not in to_delete:
+                        to_delete.add(kid)
+                        next_frontier.append(kid)
+            frontier = next_frontier
+        return to_delete
 
 
 @replies_bp.put("/<int:reply_id>")
@@ -93,7 +114,7 @@ def update_reply(reply_id, current_user):
     post = Post.query.get(reply.post_id)
     post_author_id = post.user_id if post else None
     return jsonify(
-        _reply_node(reply, config.MAX_REPLY_DEPTH, post_author_id)
+        build_reply_node(reply, config.MAX_REPLY_DEPTH, post_author_id)
     ), 200
 
 

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `nickname`      VARCHAR(50)        DEFAULT NULL         COMMENT '显示昵称（V2），为空时回退 username',
     `bio`           TEXT               DEFAULT NULL         COMMENT '个人简介（V2），最多 200 字符',
     `avatar_url`    VARCHAR(255)       DEFAULT NULL         COMMENT '头像路径（V2），如 /uploads/avatars/xxx.png',
+    `pwd_ver`       INT         NOT NULL DEFAULT 0          COMMENT '密码版本号：改密时自增，用于使旧 JWT 失效',
     `created_at`    DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_username` (`username`),
@@ -40,6 +41,8 @@ CREATE TABLE IF NOT EXISTS `posts` (
     `view_count` INT          NOT NULL DEFAULT 0         COMMENT '帖子浏览次数统计（模块 3），30 分钟内同一用户/IP 只计一次',
     PRIMARY KEY (`id`),
     KEY `fk_posts_user` (`user_id`),
+    -- 列表页按 created_at DESC 排序分页，无此索引会全表 filesort
+    KEY `idx_posts_created` (`created_at`),
     CONSTRAINT `fk_posts_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='主贴表';
@@ -62,6 +65,8 @@ CREATE TABLE IF NOT EXISTS `replies` (
     KEY `idx_post_id` (`post_id`),
     KEY `idx_reply_parent` (`parent_id`),
     KEY `idx_reply_root` (`root_id`),
+    -- 详情页按 (post_id, created_at) 取回复并排序，兼作 reply_count 计数支撑
+    KEY `idx_replies_post_created` (`post_id`, `created_at`),
     CONSTRAINT `fk_replies_post` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`)
         ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT `fk_replies_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
@@ -71,6 +76,24 @@ CREATE TABLE IF NOT EXISTS `replies` (
     CONSTRAINT `fk_replies_root` FOREIGN KEY (`root_id`) REFERENCES `replies` (`id`)
         ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='回帖表';
+
+-- ============================================================
+-- 4. 浏览去重记录表（模块 3 增强）
+--    原实现用进程内字典做 30 分钟去重，gunicorn 多 worker 下各持一份
+--    会导致重复计数；改用数据库唯一键承载去重语义，多 worker/多实例一致。
+-- ============================================================
+CREATE TABLE IF NOT EXISTS `view_log` (
+    `id`          BIGINT      NOT NULL AUTO_INCREMENT COMMENT '主键，自增',
+    `post_id`     INT         NOT NULL                COMMENT '外键，关联 posts.id',
+    `visitor_key` VARCHAR(128) NOT NULL               COMMENT '访客标识：u:<user_id> 或 ip:<addr>',
+    `created_at`  DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '首次/最近计数时间',
+    PRIMARY KEY (`id`),
+    -- 唯一键即去重语义：同帖同访客在窗口内只允许一条记录
+    UNIQUE KEY `uk_view_post_visitor` (`post_id`, `visitor_key`),
+    KEY `idx_view_created` (`created_at`),
+    CONSTRAINT `fk_view_post` FOREIGN KEY (`post_id`) REFERENCES `posts` (`id`)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='浏览去重记录表';
 
 -- ============================================================
 -- 4. 创建应用专用数据库用户（如不存在）

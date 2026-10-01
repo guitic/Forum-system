@@ -9,8 +9,9 @@ import logging
 import os
 import sqlite3
 import sys
+import time
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, g, jsonify, request, send_from_directory
 from sqlalchemy.engine import Engine
 from sqlalchemy import event
 
@@ -55,6 +56,12 @@ def create_app(config_obj=None):
     app.config.from_object(config_obj or config)
     app.json.sort_keys = False
 
+    # 结构化日志初始化（L6）：统一格式、注入请求上下文（request_id/路径/耗时等）。
+    # 必须在任何业务日志之前调用，且 setup_logging 自身幂等。
+    from utils.logging_setup import new_request_id, setup_logging
+    setup_logging(app)
+    app_logger = logging.getLogger("forum-api")
+
     # Flask-SQLAlchemy 需要 SQLALCHEMY_DATABASE_URI，映射自 DATABASE_URL
     app.config["SQLALCHEMY_DATABASE_URI"] = app.config.get("DATABASE_URL")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
@@ -68,9 +75,7 @@ def create_app(config_obj=None):
     try:
         os.makedirs(config.UPLOAD_DIR, exist_ok=True)
     except OSError as exc:
-        logging.getLogger("forum-api").warning(
-            "创建上传目录失败 %s: %s", config.UPLOAD_DIR, exc
-        )
+        app_logger.warning("创建上传目录失败 %s: %s", config.UPLOAD_DIR, exc)
 
     # 注册蓝图
     from routes.auth import auth_bp
@@ -85,6 +90,56 @@ def create_app(config_obj=None):
     app.register_blueprint(stats_bp)
     app.register_blueprint(upload_bp)
     app.register_blueprint(user_bp)
+
+    # ---------- 请求上下文与访问日志（L6） ----------
+
+    @app.before_request
+    def _assign_request_id():
+        """为每个请求分配短 id，贯穿该请求的所有日志行，便于串联排障。"""
+        from flask import g
+        g.request_id = new_request_id()
+        g.request_start = time.perf_counter()
+
+    @app.after_request
+    def _log_access(response):
+        """记录访问日志：方法/路径/状态码/耗时。
+
+        仅在 WARNING 以下按 INFO 记录正常请求，异常状态码升级为 WARNING，
+        便于在日志系统中直接筛出 4xx/5xx 而不必解析全部访问日志。
+        """
+        start = getattr(g, "request_start", None)
+        duration_ms = (
+            round((time.perf_counter() - start) * 1000, 2)
+            if start is not None
+            else None
+        )
+        # 静态资源与健康检查噪声大，降为 DEBUG 只在实际排查时开启
+        is_noisy = (
+            request.path.startswith(("/uploads/", "/vendor/"))
+            or request.path == "/health"
+            or request.path.endswith((".css", ".js", ".ico", ".png", ".jpg"))
+        )
+
+        if response.status_code >= 500:
+            level = logging.ERROR
+        elif response.status_code >= 400:
+            level = logging.WARNING
+        else:
+            level = logging.DEBUG if is_noisy else logging.INFO
+
+        if app_logger.isEnabledFor(level):
+            app_logger.log(
+                level,
+                "access",
+                extra={
+                    "event": "access",
+                    "status": response.status_code,
+                    "duration_ms": duration_ms,
+                    "request_id": getattr(g, "request_id", "-"),
+                },
+            )
+        return response
+
 
     # ---------- 统一错误处理 ----------
 
@@ -110,8 +165,9 @@ def create_app(config_obj=None):
     @app.errorhandler(Exception)
     def handle_exception(e):
         # 生产环境不暴露异常详情
-        logging.getLogger("forum-api").error(
-            "Unhandled exception: %s", str(e), exc_info=True
+        app_logger.error(
+            "Unhandled exception: %s", str(e), exc_info=True,
+            extra={"event": "unhandled_exception"},
         )
         return jsonify({"error": "服务器内部错误"}), 500
 
@@ -152,12 +208,21 @@ def create_app(config_obj=None):
 
     @app.route("/health", methods=["GET"])
     def health():
-        """健康检查接口，供监控脚本使用。"""
+        """健康检查接口，供监控脚本使用。
+
+        安全说明：对外只回 ok/error，不暴露数据库异常详情（原先回显
+        str(exc) 会泄露驱动、主机、库名等内部信息供攻击者侦察）；
+        异常详情仅写入服务端日志。
+        """
         try:
             db.session.execute(db.text("SELECT 1"))
             db_status = "ok"
-        except Exception as exc:
-            db_status = f"error: {str(exc)}"
+        except Exception:
+            db_status = "error"
+            app_logger.warning(
+                "健康检查：数据库连接失败", exc_info=True,
+                extra={"event": "health_db_error"},
+            )
         return jsonify({"status": "ok", "database": db_status}), 200
 
     # ---------- 头像静态资源服务（V2 新增） ----------

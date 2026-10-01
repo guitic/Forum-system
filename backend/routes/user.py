@@ -6,52 +6,30 @@
 """
 
 import io
+import logging
 import os
-import re
 import uuid
 
-import bcrypt
-from flask import Blueprint, jsonify, request, send_from_directory
+from flask import Blueprint, jsonify, request
 from PIL import Image, UnidentifiedImageError
 
 from config import config
 from models import User, db
-from routes.posts import require_auth
+from utils.security import (
+    hash_password,
+    require_auth,
+    validate_password_strength,
+    verify_password,
+)
 
 user_bp = Blueprint("user", __name__, url_prefix="/api/user")
+logger = logging.getLogger("forum-api")
 
 
 # ---------- 辅助函数 ----------
-
-def _validate_password_strength(password: str):
-    """校验密码强度，返回错误信息或 None。"""
-    if len(password) < config.MIN_PASSWORD_LENGTH:
-        return f"密码长度至少 {config.MIN_PASSWORD_LENGTH} 个字符"
-    if len(password) > 72:
-        return "密码长度不能超过 72 个字符"
-    if not re.search(r"[a-zA-Z]", password):
-        return "密码必须包含至少一个字母"
-    if not re.search(r"\d", password):
-        return "密码必须包含至少一个数字"
-    if not re.search(r"[^\w]", password):
-        return "密码必须包含至少一个特殊字符（如 . @ # $ 等）"
-    return None
-
-
-def _hash_password(plaintext: str) -> str:
-    """使用 bcrypt 对明文密码进行哈希。"""
-    raw = plaintext.encode("utf-8")[:72]
-    hashed = bcrypt.hashpw(raw, bcrypt.gensalt())
-    return hashed.decode("utf-8")
-
-
-def _verify_password(plaintext: str, hashed: str) -> bool:
-    """校验明文密码与哈希是否匹配。"""
-    raw = plaintext.encode("utf-8")[:72]
-    try:
-        return bcrypt.checkpw(raw, hashed.encode("utf-8"))
-    except (ValueError, TypeError):
-        return False
+# 密码哈希/校验/强度规则已统一至 utils/security.py：
+# 原先 auth.py 与 user.py 各存一份完全相同的实现，规则改动需同步多处，
+# 抽取后单点维护（模块 5-重构）。
 
 
 # ---------- 上传路径辅助 ----------
@@ -161,11 +139,11 @@ def change_password(current_user):
         return jsonify({"error": "旧密码和新密码不能为空"}), 400
 
     # 验证旧密码
-    if not _verify_password(old_password, current_user.password_hash):
+    if not verify_password(old_password, current_user.password_hash):
         return jsonify({"error": "旧密码不正确"}), 400
 
     # 校验新密码强度
-    strength_error = _validate_password_strength(new_password)
+    strength_error = validate_password_strength(new_password)
     if strength_error:
         return jsonify({"error": strength_error}), 400
 
@@ -173,8 +151,11 @@ def change_password(current_user):
     if new_password == old_password:
         return jsonify({"error": "新密码不能与旧密码相同"}), 400
 
-    # 更新密码
-    current_user.password_hash = _hash_password(new_password)
+    # 更新密码，并递增密码版本号：
+    # 使此前签发的全部 token 立即失效（require_auth 会校验 pwd_ver），
+    # 从而实现「改密码即踢下线」，被盗号后可自助止损。
+    current_user.password_hash = hash_password(new_password)
+    current_user.pwd_ver = int(current_user.pwd_ver or 0) + 1
 
     try:
         db.session.commit()
@@ -249,9 +230,13 @@ def upload_avatar(current_user):
             "error": "图片内容与文件格式不符，请上传真实的 JPG/PNG/WebP/GIF 图片"
         }), 400
 
-    # 创建头像目录
+    # 创建头像目录（磁盘只读/权限不足时给出友好错误，不再裸抛 500）
     avatar_dir = os.path.join(config.UPLOAD_DIR, config.AVATAR_DIRNAME)
-    os.makedirs(avatar_dir, exist_ok=True)
+    try:
+        os.makedirs(avatar_dir, exist_ok=True)
+    except OSError as exc:
+        logger.error("创建头像目录失败 %s: %s", avatar_dir, exc)
+        return jsonify({"error": "上传服务暂不可用，请稍后重试"}), 500
 
     # 生成随机文件名
     new_filename = f"{uuid.uuid4().hex}{ext}"

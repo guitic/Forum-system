@@ -15,9 +15,11 @@
 
 import io
 import json
+import logging
 import os
 import re
 import shutil
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -26,12 +28,27 @@ from flask import Blueprint, jsonify, request
 from PIL import Image, UnidentifiedImageError
 
 from config import config
-from routes.posts import require_auth
+from utils.security import require_auth
 
 upload_bp = Blueprint("upload", __name__, url_prefix="/api/upload")
+logger = logging.getLogger("forum-api")
 
 # upload_id 仅允许 32 位十六进制（uuid4.hex），杜绝路径注入
 _UPLOAD_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+
+# ---------- 压缩并发限制（M4：图片压缩移出请求线程的轻量替代方案） ----------
+# 背景：_compress_image 在 complete 请求线程内同步执行 1920px LANCZOS 重采样，
+#       属 CPU 密集操作。生产 gunicorn 以 gthread 模式运行（--threads 4），
+#       多个大图同时压缩会占满线程池、拖慢同 worker 的浏览/发帖请求。
+# 方案（报告推荐的"限并发"，不改变接口语义）：
+#       用信号量限制"同时进行的压缩"数量，超出的请求排队等待而非直接拒绝，
+#       把 CPU 峰值钳制在可控范围，同时保持 complete 仍是同步返回 URL。
+#       若未来需要彻底异步，可换成任务队列，接口语义需另行设计。
+_COMPRESS_SEMAPHORE = threading.BoundedSemaphore(
+    int(os.getenv("IMAGE_COMPRESS_CONCURRENCY", "2"))
+)
+# 等待信号量的上限，避免极端排队下请求长时间挂起（超时给出明确错误而非静默失败）
+_COMPRESS_ACQUIRE_TIMEOUT = int(os.getenv("IMAGE_COMPRESS_WAIT_SECONDS", "30"))
 
 
 # ---------- 路径辅助 ----------
@@ -61,9 +78,18 @@ def _read_meta(session_dir):
 
 
 def _write_meta(session_dir, meta):
+    """写入会话元数据。
+
+    磁盘满 / 目录只读 / 权限不足时抛 OSError，由调用方转成友好 5xx，
+    避免裸抛异常被全局处理器统一吞成无信息的「服务器内部错误」。
+    """
     meta_path = os.path.join(session_dir, "meta.json")
-    with open(meta_path, "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False)
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False)
+    except OSError:
+        logger.error("写入上传会话元数据失败: %s", meta_path, exc_info=True)
+        raise
 
 
 def _received_chunks(session_dir):
@@ -106,10 +132,21 @@ def _compress_image(raw_bytes, ext):
     - GIF：保留原始字节（避免破坏动画），仅校验
     - 其他格式：最长边缩至 IMAGE_MAX_DIMENSION，JPEG/WebP 按质量压缩，
       PNG 做 optimize；过小的图不放大
+
+    安全说明（M4）：显式限制解码像素总数，防"解压炸弹"
+    （小体积大像素的 PNG，解码即耗尽内存）。Pillow 自带 MAX_IMAGE_PIXELS
+    阈值会告警但默认不中断，这里在 open 之前按头部尺寸硬性拒绝。
     """
     img = Image.open(io.BytesIO(raw_bytes))
-    img.load()
     width, height = img.size
+
+    max_pixels = config.IMAGE_MAX_PIXELS
+    if width * height > max_pixels:
+        raise ValueError(
+            f"图片像素过大（{width}x{height}），上限 {max_pixels} 像素"
+        )
+
+    img.load()
 
     if ext == ".gif":
         return raw_bytes, ext, width, height
@@ -181,15 +218,20 @@ def init_upload(current_user):
     except OSError:
         return jsonify({"error": "上传服务暂不可用，请稍后重试"}), 500
 
-    _write_meta(session_dir, {
-        "user_id": current_user.id,
-        "filename": filename,
-        "ext": ext,
-        "size": size,
-        "total_chunks": total_chunks,
-        "mime_type": mime_type,
-        "created_at": time.time(),
-    })
+    try:
+        _write_meta(session_dir, {
+            "user_id": current_user.id,
+            "filename": filename,
+            "ext": ext,
+            "size": size,
+            "total_chunks": total_chunks,
+            "mime_type": mime_type,
+            "created_at": time.time(),
+        })
+    except OSError:
+        # 元数据写入失败（磁盘满/只读）：清理半成品会话并返回友好错误
+        shutil.rmtree(session_dir, ignore_errors=True)
+        return jsonify({"error": "上传服务暂不可用，请稍后重试"}), 500
 
     return jsonify({
         "upload_id": upload_id,
@@ -342,12 +384,22 @@ def complete_upload(current_user):
             "actual": len(raw_bytes),
         }), 400
 
-    # Pillow 校验 + 压缩
+    # Pillow 校验 + 压缩。
+    # 压缩是 CPU 密集操作（1920px LANCZOS 重采样），用信号量限制同时执行数，
+    # 避免多个大图请求同时占用 gthread 线程池、拖慢同 worker 的其他请求。
+    # 超时未拿到配额则明确报错（保持接口同步语义，不静默失败）。
+    acquired = _COMPRESS_SEMAPHORE.acquire(timeout=_COMPRESS_ACQUIRE_TIMEOUT)
+    if not acquired:
+        shutil.rmtree(session_dir, ignore_errors=True)
+        logger.warning("图片压缩排队超时，拒绝本次上传")
+        return jsonify({"error": "图片处理繁忙，请稍后重试"}), 503
     try:
         final_bytes, ext, width, height = _compress_image(raw_bytes, meta["ext"])
     except (UnidentifiedImageError, OSError, ValueError):
         shutil.rmtree(session_dir, ignore_errors=True)
         return jsonify({"error": "文件不是有效的图片，请重新选择"}), 400
+    finally:
+        _COMPRESS_SEMAPHORE.release()
 
     # 唯一存储路径：uploads/images/{yyyymm}/{uuid}.{ext}
     sub = datetime.now().strftime("%Y%m")

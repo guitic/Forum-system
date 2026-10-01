@@ -2,15 +2,17 @@
 """
 SQLAlchemy 数据模型定义。
 
-包含三张表：
-- users: 用户表
-- posts: 主贴表
-- replies: 回复表
+包含四张表：
+- users:    用户表
+- posts:    主贴表
+- replies:  回复表
+- view_log: 浏览去重记录表（模块 3-增强，替代进程内去重字典）
 """
 
 from datetime import datetime, timezone
 
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import UniqueConstraint
 
 # 初始化 SQLAlchemy 实例（在 app.py 中绑定到 Flask 应用）
 db = SQLAlchemy()
@@ -34,6 +36,10 @@ class User(db.Model):
     bio = db.Column(db.Text, nullable=True)
     # 头像文件路径（V2 新增），相对路径如 /uploads/avatars/xxx.png
     avatar_url = db.Column(db.String(255), nullable=True)
+    # 密码版本号（安全增强）：每次修改密码自增 1。
+    # JWT 载荷中携带签发时的 pwd_ver，require_auth 校验其与当前值一致，
+    # 从而实现「改密码后旧 token 立即失效」，无需维护服务端 token 黑名单。
+    pwd_ver = db.Column(db.Integer, nullable=False, default=0, server_default="0")
     # 创建时间
     created_at = db.Column(
         db.DateTime,
@@ -89,10 +95,12 @@ class Post(db.Model):
     title = db.Column(db.String(200), nullable=False)
     # content 存 Markdown 源码
     content = db.Column(db.Text, nullable=False)
+    # created_at 建索引：列表页按 created_at DESC 排序分页，无索引会全表 filesort
     created_at = db.Column(
         db.DateTime,
         nullable=False,
         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        index=True,
     )
     # 最后编辑时间；NULL 表示从未编辑
     updated_at = db.Column(db.DateTime, nullable=True)
@@ -200,6 +208,12 @@ class Reply(db.Model):
         passive_deletes=True,
     )
 
+    # 复合索引：帖子详情/回复列表按 (post_id, created_at) 取数并排序，
+    # 同时支撑 reply_count 计数子查询，避免 filesort。
+    __table_args__ = (
+        db.Index("idx_replies_post_created", "post_id", "created_at"),
+    )
+
     def to_dict(self):
         """转换为字典（含层级字段，但不含 depth/children 等需上下文的派生值）。"""
         return {
@@ -220,3 +234,45 @@ class Reply(db.Model):
 
     def __repr__(self):  # pragma: no cover
         return f"<Reply {self.id} on post {self.post_id} parent={self.parent_id}>"
+
+
+class ViewLog(db.Model):
+    """浏览去重记录表（模块 3-增强）。
+
+    背景：原实现用进程内 dict 做 30 分钟去重窗口，在 gunicorn 多 worker
+    （deploy/forum-api.service 实配 --workers 2）下每个 worker 各持一份，
+    同一访客轮询到不同 worker 会被重复计数，去重窗口形同虚设。
+
+    改用数据库唯一键承载去重语义：
+    - (post_id, visitor_key) 唯一约束，插入冲突即表示窗口内已计过数
+    - visitor_key：登录用户为 "u:<id>"，匿名访客为 "ip:<addr>"
+    - created_at 用于判定窗口是否过期并清理历史记录
+
+    与 Redis SETNX+EXPIRE 语义一一对应，未来若引入 Redis 可平滑替换。
+    """
+
+    __tablename__ = "view_log"
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    post_id = db.Column(
+        db.Integer,
+        db.ForeignKey("posts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    # 访客标识：u:<user_id> 或 ip:<addr>
+    visitor_key = db.Column(db.String(128), nullable=False, index=True)
+    created_at = db.Column(
+        db.DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+        index=True,
+    )
+
+    # 去重窗口的唯一性由数据库保证（多 worker / 多实例一致）
+    __table_args__ = (
+        UniqueConstraint("post_id", "visitor_key", name="uk_view_post_visitor"),
+    )
+
+    def __repr__(self):  # pragma: no cover
+        return f"<ViewLog post={self.post_id} visitor={self.visitor_key!r}>"

@@ -16,31 +16,33 @@ V3 新增：
 """
 
 import functools
+import itertools
 import logging
 import math
-import threading
-import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import jwt
 import sqlalchemy as sa
 from flask import Blueprint, jsonify, request
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 from config import config
-from models import Post, Reply, User, db
+from models import Post, Reply, User, ViewLog, db
+from utils.security import require_auth
 
 posts_bp = Blueprint("posts", __name__, url_prefix="/api/posts")
 
 logger = logging.getLogger("forum-api")
 
 
-# ---------- 浏览量去重（模块 3） ----------
-# 进程内 TTL 去重表：{(post_id, visitor_key): 过期时间戳(monotonic)}
-# visitor_key：已登录用户为 "u:<id>"，匿名访客为 "ip:<addr>"。
-# 说明：进程内去重在多实例部署时各实例独立计数；当前部署形态为单实例，
-#       未来水平扩展时可平滑替换为 Redis（SETNX + EXPIRE 同一套语义）。
-_view_dedup = {}
-_view_dedup_lock = threading.Lock()
+# ---------- 浏览量去重（模块 3 / 增强：持久化到 view_log 表） ----------
+# 说明：原实现为进程内 TTL 字典，在 gunicorn 多 worker（生产 --workers 2）
+#       下每个 worker 各持一份，同一访客轮询到不同 worker 会重复计数。
+#       现改为数据库唯一键承载去重语义：
+#         INSERT view_log(post_id, visitor_key) 冲突 → 窗口内已计过数
+#       多 worker / 多实例共享同一份去重状态，语义与 Redis SETNX 一致。
+_view_cleanup_counter = itertools.count(1)
 
 
 def _visitor_key():
@@ -67,77 +69,103 @@ def _visitor_key():
     return f"ip:{ip}"
 
 
-def _reserve_view(post_id):
-    """检查去重窗口：窗口内未访问则占位并返回去重 key，否则返回 None。
+def _cleanup_view_log(force=False):
+    """清理超过去重窗口的 view_log 记录。
 
-    占位在自增 SQL 之前完成；若随后的数据库写入失败，必须调用
-    _release_view 释放占位，避免该访客后续在窗口内永远无法计数。
+    每次详情访问都全表 DELETE 成本高，故按 VIEW_LOG_CLEANUP_EVERY 概率抽样触发；
+    force=True 用于测试或显式清理。失败静默（清理属后台维护，不应影响请求）。
     """
-    key = (post_id, _visitor_key())
-    now = time.monotonic()
-    window = config.VIEW_DEDUP_WINDOW_SECONDS
-    with _view_dedup_lock:
-        expiry = _view_dedup.get(key)
-        if expiry is not None and expiry > now:
-            return None
-        _view_dedup[key] = now + window
-        # 顺带清理过期键，防止内存无限增长
-        if len(_view_dedup) > config.VIEW_DEDUP_MAX_ENTRIES:
-            for dead_key in [k for k, exp in _view_dedup.items() if exp <= now]:
-                _view_dedup.pop(dead_key, None)
-    return key
+    if not force:
+        # itertools.count 原子自增，取模决定是否本次触发
+        if next(_view_cleanup_counter) % max(1, config.VIEW_LOG_CLEANUP_EVERY) != 0:
+            return
+    try:
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            seconds=config.VIEW_DEDUP_WINDOW_SECONDS
+        )
+        deleted = (
+            db.session.query(ViewLog)
+            .filter(ViewLog.created_at < cutoff)
+            .delete(synchronize_session=False)
+        )
+        db.session.commit()
+        if deleted:
+            logger.info("已清理 %s 条过期浏览去重记录", deleted)
+    except Exception:
+        db.session.rollback()
+        logger.warning("清理 view_log 失败", exc_info=True)
 
 
-def _release_view(key):
-    """释放一次未成功写入的去重占位。"""
-    with _view_dedup_lock:
-        _view_dedup.pop(key, None)
+def _reserve_view(post_id):
+    """尝试为本次访问占位：窗口内未访问则写入 view_log 并返回 True。
 
+    依赖 uk_view_post_visitor 唯一约束实现原子去重：
+    - 插入成功 → 本次访问有效，返回 True
+    - 唯一冲突 → 窗口内已计过数，返回 False
+
+    并发下由数据库保证只会有一个请求插入成功，无需应用层加锁。
+    """
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        seconds=config.VIEW_DEDUP_WINDOW_SECONDS
+    )
+    visitor = _visitor_key()
+    try:
+        # 先尝试更新窗口内的既有记录时间（滑动窗口语义），无匹配再插入。
+        updated = (
+            db.session.query(ViewLog)
+            .filter(
+                ViewLog.post_id == post_id,
+                ViewLog.visitor_key == visitor,
+                ViewLog.created_at >= cutoff,
+            )
+            .update(
+                {ViewLog.created_at: datetime.now(timezone.utc).replace(tzinfo=None)},
+                synchronize_session=False,
+            )
+        )
+        if updated:
+            # 窗口内已有记录：属于重复访问，不计数
+            db.session.commit()
+            return False
+
+        # 无窗口内记录：清理可能存在的过期记录后插入（唯一键冲突即并发重复）
+        db.session.query(ViewLog).filter(
+            ViewLog.post_id == post_id,
+            ViewLog.visitor_key == visitor,
+        ).delete(synchronize_session=False)
+        db.session.add(ViewLog(post_id=post_id, visitor_key=visitor))
+        db.session.commit()
+        return True
+    except IntegrityError:
+        # 并发下另一请求已抢先插入 → 本次视为重复访问
+        db.session.rollback()
+        return False
+    except Exception:
+        db.session.rollback()
+        logger.warning("浏览量占位写入失败", exc_info=True)
+        # 占位失败时不阻断浏览，但也不计数（避免统计虚高）
+        return False
+
+
+def _release_view(post_id):
+    """释放本次访问的占位（仅用于自增失败时回滚，使访客下次可重新计数）。"""
+    visitor = _visitor_key()
+    try:
+        db.session.query(ViewLog).filter(
+            ViewLog.post_id == post_id,
+            ViewLog.visitor_key == visitor,
+        ).delete(synchronize_session=False)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.warning("浏览量占位释放失败", exc_info=True)
 
 
 # ---------- 鉴权装饰器 ----------
-
-def require_auth(fn):
-    """
-    鉴权装饰器：从 Authorization: Bearer <token> 中解析 JWT，
-    并将当前用户注入被装饰函数的 `current_user` 参数。
-    """
-
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        header = request.headers.get("Authorization", "")
-        if not header.startswith("Bearer "):
-            return jsonify({"error": "缺少有效的 Bearer Token"}), 401
-
-        token = header[len("Bearer "):].strip()
-        if not token:
-            return jsonify({"error": "缺少有效的 Bearer Token"}), 401
-
-        try:
-            payload = jwt.decode(
-                token,
-                config.JWT_SECRET_KEY,
-                algorithms=[config.JWT_ALGORITHM],
-            )
-        except jwt.ExpiredSignatureError:
-            return jsonify({"error": "Token 已过期，请重新登录"}), 401
-        except jwt.InvalidTokenError:
-            return jsonify({"error": "Token 无效"}), 401
-
-        # 优先按 id 查用户；查询失败则视为无效
-        try:
-            user_id = int(payload.get("sub"))
-        except (TypeError, ValueError):
-            return jsonify({"error": "Token 无效"}), 401
-
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({"error": "Token 对应的用户不存在"}), 401
-
-        kwargs["current_user"] = user
-        return fn(*args, **kwargs)
-
-    return wrapper
+# require_auth 已下沉至 utils/security.py，供 auth/user/upload/replies/posts
+# 统一引用，避免各模块反向依赖本文件（模块 5-重构）。
+# 此处仅做再导出，保持既有 `from routes.posts import require_auth` 的兼容性。
+__all__ = ["posts_bp", "require_auth"]
 
 
 # ---------- 辅助函数 ----------
@@ -171,161 +199,26 @@ def _parse_dt(value):
         return str(value)
 
 
-# ---------- 回复层级构建（V3 新增） ----------
-
-def _reply_chain_info(reply, index):
-    """一次回溯同时计算真实链信息。
-
-    返回 (真实深度, 话题根回复 id)：
-    - 真实深度：沿 parent_id 链向上回溯到一级回复的步数（一级回复 = 0）
-    - 话题根 id：回溯到的那条一级回复的 id
-
-    含环保护与悬空引用保护，避免脏数据导致死循环。
-    """
-    depth = 0
-    cur = reply
-    seen = set()
-    while cur is not None and cur.parent_id:
-        if cur.id in seen:
-            break
-        seen.add(cur.id)
-        parent = index.get(cur.parent_id)
-        if parent is None:
-            break
-        cur = parent
-        depth += 1
-    return depth, cur.id
-
-
-def _prepare_reply_structure(replies, max_depth):
-    """预计算回复树的展示结构。
-
-    replies 必须已按 created_at 升序（父回复必先于子回复出现，便于迭代求解）。
-
-    返回 (index, depth_map, root_map, children_map, display_parent)：
-    - index:          id → Reply ORM 对象
-    - depth_map:      id → 展示深度（已按 max_depth 收敛，0/1/2…）
-    - root_map:       id → 话题根回复 id（真实值，一级回复为 None）
-    - children_map:   展示父 id → [展示子 id, ...]
-    - display_parent: id → 展示父 id（None 表示展示为一级）
-    """
-    index = {r.id: r for r in replies}
-
-    # 1) 真实链信息，用于话题根 id 与溢出判定
-    chain = {r.id: _reply_chain_info(r, index) for r in replies}
-
-    # 2) 决定每个节点的"展示父节点"
-    #    - 未超过深度上限：挂到真实父节点下
-    #    - 超过深度上限：上提到父节点所在的展示层级，作为同级
-    display_parent = {}
-    for r in replies:
-        if r.parent_id is None:
-            display_parent[r.id] = None
-            continue
-        real_parent = index.get(r.parent_id)
-        if real_parent is None:
-            # 悬空引用（父回复已被单独删除等）：降级为一级回复
-            display_parent[r.id] = None
-            continue
-        if chain[r.parent_id][0] + 1 <= max_depth:
-            display_parent[r.id] = r.parent_id
-        else:
-            display_parent[r.id] = display_parent.get(r.parent_id)
-
-    # 3) 展示深度（迭代求解，父节点必先于子节点）
-    depth_map = {}
-    for r in replies:
-        parent_id = display_parent[r.id]
-        depth_map[r.id] = 0 if parent_id is None else depth_map[parent_id] + 1
-
-    # 4) 话题根 id（取真实值，一级回复为 None）
-    root_map = {rid: info[1] for rid, info in chain.items()}
-
-    # 5) 展示父子映射
-    children_map = {}
-    for r in replies:
-        parent_id = display_parent[r.id]
-        if parent_id is not None:
-            children_map.setdefault(parent_id, []).append(r.id)
-
-    return index, depth_map, root_map, children_map, display_parent
-
-
-def _reply_node_dict(reply, index, depth_map, root_map, children_map, post_author_id):
-    """将单条 Reply 序列化为对外 JSON 节点（不含 children）。"""
-    parent = index.get(reply.parent_id) if reply.parent_id else None
-    author = reply.author
-    return {
-        "id": reply.id,
-        "post_id": reply.post_id,
-        "user_id": reply.user_id,
-        "username": author.username if author else None,
-        "nickname": author.nickname if author else None,
-        "display_name": author.display_name if author else None,
-        "avatar_url": author.avatar_url if author else None,
-        "role": author.role if author else None,
-        # 是否为楼主（帖子作者），供前端佩戴「楼主」徽标
-        "is_author": reply.user_id == post_author_id,
-        "content": reply.content,
-        "created_at": _parse_dt(reply.created_at),
-        "updated_at": _parse_dt(reply.updated_at),
-        "parent_id": reply.parent_id,
-        "root_id": root_map.get(reply.id),
-        "depth": depth_map.get(reply.id, 0),
-        # 被"真实"父回复人的显示名（即使展示上被拉平，引用对象仍准确）
-        "reply_to_display_name": (
-            parent.author.display_name if parent is not None and parent.author else None
-        ),
-        "reply_count": len(children_map.get(reply.id, [])),
-    }
+# ---------- 回复层级构建（V3 新增；P1-6 下沉至 services/reply_tree.py） ----------
+# 领域逻辑已抽到 services/reply_tree.py，避免 replies.py 反向依赖本模块。
+# 此处保留原名别名，兼容既有 `from routes.posts import _reply_node` 的引用。
+from services.reply_tree import (  # noqa: E402
+    build_reply_node as _build_reply_node,
+    build_reply_tree as _build_reply_tree_service,
+    prepare_reply_structure as _prepare_reply_structure,
+    reply_chain_info as _reply_chain_info,
+    reply_node_dict as _reply_node_dict,
+)
 
 
 def _build_reply_tree(replies, post_author_id, max_depth):
-    """构建展示用嵌套回复树。
-
-    返回 (tree, flat)：
-    - tree: 嵌套结构，每个节点含 children（最多 max_depth+1 层）
-    - flat: 扁平列表（按时间升序），字段同 tree 节点，用于兼容与统计
-    """
-    index, depth_map, root_map, children_map, display_parent = _prepare_reply_structure(
-        replies, max_depth
-    )
-
-    nodes = {
-        r.id: _reply_node_dict(
-            r, index, depth_map, root_map, children_map, post_author_id
-        )
-        for r in replies
-    }
-    flat = [nodes[r.id] for r in replies]
-
-    def attach_children(node):
-        node["children"] = [nodes[kid] for kid in children_map.get(node["id"], [])]
-        for child in node["children"]:
-            attach_children(child)
-        return node
-
-    tree = [
-        attach_children(nodes[r.id])
-        for r in replies
-        if display_parent[r.id] is None
-    ]
-    return tree, flat
+    """构建展示用嵌套回复树（转调 services.reply_tree.build_reply_tree）。"""
+    return _build_reply_tree_service(replies, post_author_id, max_depth)
 
 
 def _reply_node(reply, max_depth, post_author_id):
-    """序列化单条回复（用于新建回复的响应体），含层级字段。"""
-    siblings = (
-        Reply.query.filter_by(post_id=reply.post_id)
-        .order_by(Reply.created_at.asc(), Reply.id.asc())
-        .all()
-    )
-    index, depth_map, root_map, children_map, _ = _prepare_reply_structure(
-        siblings, max_depth
-    )
-    return _reply_node_dict(
-        reply, index, depth_map, root_map, children_map, post_author_id
-    )
+    """序列化单条回复（转调 services.reply_tree.build_reply_node）。"""
+    return _build_reply_node(reply, max_depth, post_author_id)
 
 
 # ---------- 路由 ----------
@@ -425,9 +318,9 @@ def get_post(post_id):
     if not post:
         return jsonify({"error": "帖子不存在"}), 404
 
-    # 浏览量自增（独立事务，原子表达式避免并发丢增量）
-    dedup_key = _reserve_view(post.id)
-    if dedup_key is not None:
+    # 浏览量自增（独立事务，原子表达式避免并发丢增量）。
+    # 去重占位已下沉到 view_log 表，多 worker 下同样只有一次计数生效。
+    if _reserve_view(post.id):
         try:
             Post.query.filter(Post.id == post.id).update(
                 {Post.view_count: Post.view_count + 1},
@@ -437,15 +330,21 @@ def get_post(post_id):
         except Exception:
             db.session.rollback()
             # 写入失败：释放占位，使该访客下次访问可重新计数；详情正常返回
-            _release_view(dedup_key)
+            _release_view(post.id)
             logger.warning("帖子 %s 浏览量自增失败", post.id, exc_info=True)
+
+    # 概率性清理过期的 view_log 记录（避免每请求全表删除）
+    _cleanup_view_log()
 
     # 自增提交后会话已过期，此处访问即触发详情数据读取（读写分离）
     db.session.expire(post)
 
-    # 按 created_at 升序返回回复（父回复必先于子回复出现）
+    # 按 created_at 升序返回回复（父回复必先于子回复出现）。
+    # selectinload(Reply.author)：一次性把全部回复作者取回，避免逐条懒加载
+    # 造成 N+1（500 回复帖原约 1000+ 次查询 → 现为固定 2~3 次）。
     replies = (
         Reply.query.filter_by(post_id=post.id)
+        .options(selectinload(Reply.author))
         .order_by(Reply.created_at.asc(), Reply.id.asc())
         .all()
     )

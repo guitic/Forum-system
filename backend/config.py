@@ -115,6 +115,9 @@ class Config:
     ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
     # 压缩后最长边（像素）
     IMAGE_MAX_DIMENSION = int(os.getenv("IMAGE_MAX_DIMENSION", "1920"))
+    # 解码像素上限（防"解压炸弹"：小体积大像素图，解码即耗尽内存）。
+    # 默认 8000 万像素 ≈ 8944x8944，远超 1920 需求，正常照片不会触达。
+    IMAGE_MAX_PIXELS = int(os.getenv("IMAGE_MAX_PIXELS", str(80 * 1000 * 1000)))
     # JPEG 压缩质量
     IMAGE_JPEG_QUALITY = int(os.getenv("IMAGE_JPEG_QUALITY", "82"))
     # 未完成的分片上传保留时长（秒），超期在下次 init 时清理
@@ -134,10 +137,34 @@ class Config:
     MAX_REPLY_LENGTH = int(os.getenv("MAX_REPLY_LENGTH", "5000"))
 
     # ---------- 浏览量统计配置（模块 3 新增） ----------
-    # 同一登录用户（未登录时按 IP）对同一帖子的浏览去重窗口（秒），默认 30 分钟
+    # 同一登录用户（未登录时按 IP）对同一帖子的浏览去重窗口（秒），默认 30 分钟。
+    # 去重记录持久化在 view_log 表（多 worker / 多实例一致），不再是进程内字典。
     VIEW_DEDUP_WINDOW_SECONDS = int(os.getenv("VIEW_DEDUP_WINDOW_SECONDS", "1800"))
-    # 进程内去重表的最大条目数，超过后顺带清理过期键，防止内存无限增长
-    VIEW_DEDUP_MAX_ENTRIES = int(os.getenv("VIEW_DEDUP_MAX_ENTRIES", "100000"))
+    # view_log 历史记录的批量清理阈值：清理时删除超过窗口期的记录。
+    # 每次访问详情触发一次轻量清理的概率（1/N），避免每请求都全表扫描。
+    VIEW_LOG_CLEANUP_EVERY = int(os.getenv("VIEW_LOG_CLEANUP_EVERY", "200"))
+
+    # ---------- 登录失败节流（安全增强） ----------
+    # 统计窗口（秒）：窗口内失败次数达到阈值即锁定
+    LOGIN_THROTTLE_WINDOW_SECONDS = int(os.getenv("LOGIN_THROTTLE_WINDOW_SECONDS", "300"))
+    # 窗口内允许的最大失败次数
+    LOGIN_THROTTLE_MAX_ATTEMPTS = int(os.getenv("LOGIN_THROTTLE_MAX_ATTEMPTS", "5"))
+    # 触发阈值后的锁定时长（秒）
+    LOGIN_THROTTLE_LOCK_SECONDS = int(os.getenv("LOGIN_THROTTLE_LOCK_SECONDS", "900"))
+    # 节流表最大条目数，超过后顺带清理过期键，防止内存无限增长
+    LOGIN_THROTTLE_MAX_ENTRIES = int(os.getenv("LOGIN_THROTTLE_MAX_ENTRIES", "10000"))
+
+    # ---------- 统计接口缓存（性能） ----------
+    # /api/stats 聚合结果缓存时长（秒），0 表示禁用缓存
+    STATS_CACHE_TTL_SECONDS = int(os.getenv("STATS_CACHE_TTL_SECONDS", "60"))
+
+    # ---------- 结构化日志（L6 可观测性） ----------
+    # 日志级别：DEBUG / INFO / WARNING / ERROR，默认 INFO
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+    # 输出格式：json 便于日志采集（ELK/Loki）按字段检索；text 为人类可读单行
+    LOG_FORMAT = os.getenv("LOG_FORMAT", "text").lower()
+    # 是否输出到文件（留空则仅输出 stdout，由 systemd/journald 收集）
+    LOG_FILE = os.getenv("LOG_FILE", "")
 
 
 # 默认配置实例

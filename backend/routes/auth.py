@@ -6,31 +6,19 @@
 import re
 from datetime import datetime, timedelta, timezone
 
-import bcrypt
 import jwt
 from flask import Blueprint, jsonify, request
 
 from config import config
 from models import User, db
+from utils.security import (
+    hash_password,
+    validate_password_strength,
+    verify_password,
+)
+from utils import throttle
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
-
-
-def _hash_password(plaintext: str) -> str:
-    """使用 bcrypt 对明文密码进行哈希。"""
-    # bcrypt 最多处理 72 字节的输入，超出部分会被静默截断；这里做一次显式限制。
-    raw = plaintext.encode("utf-8")[:72]
-    hashed = bcrypt.hashpw(raw, bcrypt.gensalt())
-    return hashed.decode("utf-8")
-
-
-def _verify_password(plaintext: str, hashed: str) -> bool:
-    """校验明文密码与哈希是否匹配。"""
-    raw = plaintext.encode("utf-8")[:72]
-    try:
-        return bcrypt.checkpw(raw, hashed.encode("utf-8"))
-    except (ValueError, TypeError):
-        return False
 
 
 @auth_bp.post("/register")
@@ -63,19 +51,10 @@ def register():
     if not re.search(r"\d", username) or not re.search(r"[a-zA-Z]", username):
         return jsonify({"error": "用户名必须同时包含字母和数字"}), 400
 
-    # 密码校验：至少 8 位，必须包含字母、数字和特殊字符
-    if len(password) < config.MIN_PASSWORD_LENGTH:
-        return jsonify(
-            {"error": f"密码长度至少 {config.MIN_PASSWORD_LENGTH} 个字符"}
-        ), 400
-    if len(password) > 72:
-        return jsonify({"error": "密码长度不能超过 72 个字符"}), 400
-    if not re.search(r"[a-zA-Z]", password):
-        return jsonify({"error": "密码必须包含至少一个字母"}), 400
-    if not re.search(r"\d", password):
-        return jsonify({"error": "密码必须包含至少一个数字"}), 400
-    if not re.search(r"[^\w]", password):
-        return jsonify({"error": "密码必须包含至少一个特殊字符（如 . @ # $ 等）"}), 400
+    # 密码强度校验（与改密码共用同一规则，单点维护）
+    strength_error = validate_password_strength(password)
+    if strength_error:
+        return jsonify({"error": strength_error}), 400
 
     # 冲突检测（大小写不敏感）
     existing = User.query.filter(db.func.lower(User.username) == username.lower()).first()
@@ -84,7 +63,7 @@ def register():
 
     user = User(
         username=username,
-        password_hash=_hash_password(password),
+        password_hash=hash_password(password),
         role="user",
     )
     try:
@@ -132,10 +111,22 @@ def login():
     if not username or not password:
         return jsonify({"error": "用户名和密码不能为空"}), 400
 
+    # 登录失败节流：命中锁定直接拒绝，避免在线暴力破解/撞库
+    client_ip = throttle.request_headers_forwarded_for()
+    locked_seconds = throttle.check_locked(username, client_ip)
+    if locked_seconds > 0:
+        return jsonify({
+            "error": f"登录失败次数过多，请 {locked_seconds} 秒后重试"
+        }), 429
+
     user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
     # 用户不存在或密码错误，统一返回同一错误信息，防止用户名枚举
-    if not user or not _verify_password(password, user.password_hash):
+    if not user or not verify_password(password, user.password_hash):
+        throttle.record_failure(username, client_ip)
         return jsonify({"error": "用户名或密码错误"}), 401
+
+    # 登录成功：清零该 (username, ip) 的失败计数
+    throttle.reset(username, client_ip)
 
     # 签发 JWT
     now = datetime.now(timezone.utc)
@@ -143,6 +134,9 @@ def login():
         "sub": str(user.id),
         "username": user.username,
         "role": user.role,
+        # 密码版本号：require_auth 校验其与库中值一致，
+        # 改密码后旧 token 立即失效（无需服务端黑名单）
+        "pwd_ver": int(user.pwd_ver or 0),
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(hours=config.JWT_EXPIRATION_HOURS)).timestamp()),
     }

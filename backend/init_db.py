@@ -282,6 +282,71 @@ def ensure_sqlite_cascade_constraints(verbose: bool = True) -> list:
     return rebuilt
 
 
+def ensure_pwd_ver_column(verbose: bool = True) -> list:
+    """幂等地为存量 users 表补充 pwd_ver 字段（安全增强）。
+
+    pwd_ver 用于「改密码后旧 JWT 立即失效」：token 载荷携带签发时的
+    版本号，require_auth 校验其与库中当前值一致。存量用户默认为 0。
+
+    返回本次实际补充的列名列表（空列表表示结构已是最新）。
+    """
+    added = []
+
+    with app.app_context():
+        inspector = sa_inspect(db.engine)
+        if not inspector.has_table("users"):
+            return added
+
+        existing_cols = {c["name"] for c in inspector.get_columns("users")}
+        if "pwd_ver" not in existing_cols:
+            with db.engine.begin() as conn:
+                conn.execute(text(
+                    "ALTER TABLE users ADD COLUMN pwd_ver "
+                    "INTEGER NOT NULL DEFAULT 0"
+                ))
+            added.append("users.pwd_ver")
+
+    return added
+
+
+def ensure_performance_indexes(verbose: bool = True) -> list:
+    """幂等地补建性能索引（列表排序 / 详情取回复）。
+
+    - idx_posts_created(created_at)：列表页按 created_at DESC 排序
+    - idx_replies_post_created(post_id, created_at)：详情页取回复并排序，
+      同时支撑 reply_count 计数子查询
+
+    已存在或方言不支持时静默跳过，不阻断初始化。
+    返回本次实际创建的索引名列表。
+    """
+    added = []
+
+    with app.app_context():
+        inspector = sa_inspect(db.engine)
+
+        targets = [
+            ("posts", "idx_posts_created", "created_at"),
+            ("replies", "idx_replies_post_created", "post_id, created_at"),
+        ]
+        for table, idx_name, cols in targets:
+            if not inspector.has_table(table):
+                continue
+            existing_idx = {i["name"] for i in inspector.get_indexes(table)}
+            if idx_name in existing_idx:
+                continue
+            try:
+                with db.engine.begin() as conn:
+                    conn.execute(text(
+                        f"CREATE INDEX {idx_name} ON {table} ({cols})"
+                    ))
+                added.append(idx_name)
+            except Exception as exc:  # noqa: BLE001
+                if verbose:
+                    print(f"[init_db] 索引 {idx_name} 创建失败（可忽略）: {exc}")
+
+    return added
+
+
 def init_database(drop: bool = False, admin_user: str = None, admin_pass: str = None):
     """
     初始化数据库：建表 + 创建管理员。
@@ -333,6 +398,20 @@ def init_database(drop: bool = False, admin_user: str = None, admin_pass: str = 
             print(f"[init_db] 已重建表以启用数据库级联: {', '.join(rebuilt_fk)}")
         else:
             print("[init_db] 外键级联约束已就绪，无需变更")
+
+        # 存量库结构巡检：补齐密码版本号字段（安全增强）
+        added_pwd = ensure_pwd_ver_column()
+        if added_pwd:
+            print(f"[init_db] 已补充密码版本字段: {', '.join(added_pwd)}")
+        else:
+            print("[init_db] pwd_ver 字段已就绪，无需变更")
+
+        # 存量库结构巡检：补建性能索引
+        added_idx = ensure_performance_indexes()
+        if added_idx:
+            print(f"[init_db] 已补建性能索引: {', '.join(added_idx)}")
+        else:
+            print("[init_db] 性能索引已就绪，无需变更")
 
         # 检查管理员是否已存在
         existing = User.query.filter_by(username=admin_user).first()
