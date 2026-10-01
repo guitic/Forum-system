@@ -45,6 +45,12 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
+# 数据库备份（含用户数据与密码哈希，绝不入库）
+*.db.bak
+*.db.bak-*
+*.db.bak.*
+*_backup.db
+
 # 日志
 *.log
 logs/
