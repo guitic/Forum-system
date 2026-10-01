@@ -186,6 +186,17 @@ def create_app(config_obj=None):
 app = create_app()
 
 
+# ---------- 生产环境密钥安全校验（模块级，覆盖 gunicorn 导入启动场景）----------
+# 说明：gunicorn 以 `app:app` 方式导入本模块，不走 __main__ 分支，
+# 因此校验必须放在模块级才能拦住生产启动。
+# 但 init_db.py / 测试脚本同样会导入本模块，它们不应被密钥策略阻断，
+# 故提供逃生舱：设置 FORUM_SKIP_SECRET_CHECK=1 可跳过（仅供建库/测试使用）。
+if os.getenv("FORUM_SKIP_SECRET_CHECK") != "1":
+    _secrets_ok, _secrets_msg = config.validate_secrets()
+    if not _secrets_ok:
+        raise RuntimeError(f"[Forum API] 启动被拒绝：{_secrets_msg}")
+
+
 # ---------- 直接运行入口 ----------
 
 if __name__ == "__main__":

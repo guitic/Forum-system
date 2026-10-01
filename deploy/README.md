@@ -242,10 +242,21 @@ sudo chmod 750 /opt/forum/scripts/*.py
 **部署路径**: `/etc/nginx/conf.d/forum.conf`
 
 ```bash
+# 1) 先部署安全头 snippet（nginx.conf 通过 include 引用它，缺文件会导致 nginx -t 失败）
+sudo mkdir -p /etc/nginx/snippets
+sudo cp deploy/snippets/forum-security-headers.conf /etc/nginx/snippets/
+
+# 2) 再部署主配置
 sudo cp deploy/nginx.conf /etc/nginx/conf.d/forum.conf
 sudo nginx -t                # 测试配置
 sudo systemctl reload nginx  # 重载
 ```
+
+> **为什么需要 snippet**：nginx 的 `add_header` 是「就近覆盖」语义 —— 只要某个 `location`
+> 块内出现任何 `add_header`，该 location 就**不再继承** server 级的所有 `add_header`。
+> 因此 `/`、`*.html`、静态资源、`/uploads/` 等设置了 `Cache-Control` 的 location 会丢失
+> HSTS / CSP / X-Frame-Options 等全部安全头。把安全头抽成 `snippets/forum-security-headers.conf`
+> 并在每个含 `add_header` 的 location 中 `include`，可保证安全头不丢失。
 
 **必须修改的项**:
 

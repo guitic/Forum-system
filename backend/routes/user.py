@@ -5,12 +5,14 @@
 所有接口均需 Bearer Token 鉴权。
 """
 
+import io
 import os
 import re
 import uuid
 
 import bcrypt
 from flask import Blueprint, jsonify, request, send_from_directory
+from PIL import Image, UnidentifiedImageError
 
 from config import config
 from models import User, db
@@ -221,6 +223,30 @@ def upload_avatar(current_user):
         max_mb = config.MAX_AVATAR_SIZE / (1024 * 1024)
         return jsonify({
             "error": f"图片大小不能超过 {max_mb:.0f}MB"
+        }), 400
+
+    # 用 Pillow 校验文件「真实内容」是图片。
+    # 仅校验扩展名与 MIME 是不够的：二者都由客户端提供、可随意伪造，
+    # 攻击者可上传改名后的任意文件（如 HTML/SVG/脚本）到 uploads 目录。
+    # 此处解析文件头并完整 load()，确保确实是一张可解码的图片。
+    try:
+        probe = Image.open(io.BytesIO(file_data))
+        probe.load()
+        real_format = (probe.format or "").upper()
+    except (UnidentifiedImageError, OSError, ValueError):
+        return jsonify({"error": "文件不是有效的图片，请重新选择"}), 400
+
+    # 真实格式必须与声明的扩展名一致，防止「改扩展名绕过」
+    allowed_formats = {
+        ".jpg": {"JPEG", "MPO"},
+        ".jpeg": {"JPEG", "MPO"},
+        ".png": {"PNG"},
+        ".webp": {"WEBP"},
+        ".gif": {"GIF"},
+    }
+    if real_format not in allowed_formats.get(ext, set()):
+        return jsonify({
+            "error": "图片内容与文件格式不符，请上传真实的 JPG/PNG/WebP/GIF 图片"
         }), 400
 
     # 创建头像目录

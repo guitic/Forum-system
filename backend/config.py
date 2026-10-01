@@ -32,11 +32,40 @@ class Config:
 
     # ---------- JWT 配置 ----------
     # JWT 密钥：务必在生产环境中通过环境变量注入强随机密钥。
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-please-change-in-production")
+    #
+    # 安全说明：默认值仅供本地开发。若生产环境忘记注入 SECRET_KEY，
+    # 使用公开的默认值签发 JWT 会导致任何人可伪造 token —— 这是严重风险。
+    # 因此：当 APP_ENV=production（或 FLASK_ENV=production）却仍在使用默认密钥、
+    # 或密钥长度不足 32 字符时，启动期直接 fail-fast 拒绝启动。
+    _DEFAULT_DEV_SECRET = "dev-secret-key-please-change-in-production"
+
+    SECRET_KEY = os.getenv("SECRET_KEY", _DEFAULT_DEV_SECRET)
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", SECRET_KEY)
     JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
     # Token 过期时间（秒），默认 24 小时。
     JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
+
+    @classmethod
+    def validate_secrets(cls):
+        """启动期密钥校验：生产环境下拒绝使用弱/默认密钥。
+
+        返回 (ok: bool, message: str)。由 app.py 在创建应用时调用，
+        生产环境校验失败会直接抛错阻止启动（fail-fast），避免带病上线。
+        """
+        env = (os.getenv("APP_ENV") or os.getenv("FLASK_ENV") or "").lower()
+        is_production = env in ("production", "prod")
+
+        using_default = cls.SECRET_KEY == cls._DEFAULT_DEV_SECRET
+        too_short = len(cls.SECRET_KEY or "") < 32
+
+        if is_production and (using_default or too_short):
+            reason = "仍在使用内置默认密钥" if using_default else "密钥长度不足 32 字符"
+            return False, (
+                f"生产环境 SECRET_KEY 不安全（{reason}）。"
+                "请通过环境变量注入强随机密钥，例如："
+                "python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+            )
+        return True, ""
 
     # ---------- Flask 配置 ----------
     # 关闭 JSON key 排序，避免响应字段被字典序打乱，提升可读性。

@@ -21,6 +21,10 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 建库脚本本身不对外提供服务，且常在生产环境执行(此时密钥可能尚未注入)，
+# 故跳过 app.py 模块级的生产密钥强校验，由 _warn_if_weak_admin_password 独立把关。
+os.environ.setdefault("FORUM_SKIP_SECRET_CHECK", "1")
+
 import bcrypt
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import text
@@ -34,6 +38,26 @@ def _hash_password(plaintext: str) -> str:
     """使用 bcrypt 哈希密码。"""
     raw = plaintext.encode("utf-8")[:72]
     return bcrypt.hashpw(raw, bcrypt.gensalt()).decode("utf-8")
+
+
+def _warn_if_weak_admin_password(admin_user: str, admin_pass: str) -> None:
+    """管理员口令安全提示。
+
+    默认口令 admin/admin123 仅供本地开发。生产环境(APP_ENV=production)下
+    若沿用默认口令，直接拒绝继续，避免把弱口令的管理员账号带上线。
+    """
+    env = (os.getenv("APP_ENV") or os.getenv("FLASK_ENV") or "").lower()
+    is_production = env in ("production", "prod")
+    is_default = (admin_user == "admin" and admin_pass == "admin123")
+
+    if is_default and is_production:
+        print("[init_db] 错误：生产环境禁止使用默认管理员口令 admin/admin123。")
+        print("          请显式指定：--admin <用户名> --admin-pass <强口令>")
+        print("          或设置环境变量 ADMIN_USER / ADMIN_PASS。")
+        sys.exit(1)
+    if is_default:
+        print("[init_db] 警告：正在使用默认管理员口令 admin/admin123，仅供本地开发！")
+        print("          部署到生产环境前请改为强口令。")
 
 
 def ensure_reply_hierarchy_columns(verbose: bool = True) -> list:
@@ -258,15 +282,22 @@ def ensure_sqlite_cascade_constraints(verbose: bool = True) -> list:
     return rebuilt
 
 
-def init_database(drop: bool = False, admin_user: str = "admin", admin_pass: str = "admin123"):
+def init_database(drop: bool = False, admin_user: str = None, admin_pass: str = None):
     """
     初始化数据库：建表 + 创建管理员。
 
     Args:
         drop: 是否先删除所有表再重建
-        admin_user: 管理员用户名
-        admin_pass: 管理员密码
+        admin_user: 管理员用户名（默认 admin，可用环境变量 ADMIN_USER 覆盖）
+        admin_pass: 管理员密码（默认 admin123，可用环境变量 ADMIN_PASS 覆盖）
     """
+    if admin_user is None:
+        admin_user = os.getenv("ADMIN_USER", "admin")
+    if admin_pass is None:
+        admin_pass = os.getenv("ADMIN_PASS", "admin123")
+
+    _warn_if_weak_admin_password(admin_user, admin_pass)
+
     with app.app_context():
         if drop:
             print("[init_db] 删除所有数据表...")
@@ -340,13 +371,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--admin",
-        default="admin",
-        help="管理员用户名（默认：admin）",
+        default=None,
+        help="管理员用户名（默认取环境变量 ADMIN_USER，兜底 admin）",
     )
     parser.add_argument(
         "--admin-pass",
-        default="admin123",
-        help="管理员密码（默认：admin123）",
+        default=None,
+        help="管理员密码（默认取环境变量 ADMIN_PASS，兜底 admin123，仅限本地开发）",
     )
 
     args = parser.parse_args()

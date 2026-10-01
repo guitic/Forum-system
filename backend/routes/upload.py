@@ -330,6 +330,18 @@ def complete_upload(current_user):
         max_mb = config.MAX_IMAGE_SIZE / (1024 * 1024)
         return jsonify({"error": f"图片大小不能超过 {max_mb:.0f}MB"}), 400
 
+    # 校验「实际合并大小」与「初始化时声明的大小」一致。
+    # 缺少此校验时，客户端可声明一个很小的 size 通过 init 阶段的预检，
+    # 再实际传满超大分片，导致预检形同虚设（也便于掩盖分片截断/丢失）。
+    declared_size = int(meta.get("size") or 0)
+    if declared_size != len(raw_bytes):
+        shutil.rmtree(session_dir, ignore_errors=True)
+        return jsonify({
+            "error": "文件大小与声明不一致，上传可能被截断，请重新上传",
+            "declared": declared_size,
+            "actual": len(raw_bytes),
+        }), 400
+
     # Pillow 校验 + 压缩
     try:
         final_bytes, ext, width, height = _compress_image(raw_bytes, meta["ext"])

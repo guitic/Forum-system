@@ -73,5 +73,14 @@ uploads/
 backend/forum.db
 
 # GraphFlow 工具派生产物（索引缓存、代码图谱，可由工具重新生成，频繁变动不纳入版本库）
-.graphflow-cache/index-state.json
-graphflow-out/graphflow-graph.json
+.graphflow/
+.graphflow-cache/
+graphflow-out/
+
+# AI / IDE 工具目录（本地个人配置与记忆，不纳入版本库）
+.trae/
+.claude/
+.workbuddy-ai/
+
+# 测试遗留库（backend/instance 下除开发库外）
+backend/instance/_*.db
