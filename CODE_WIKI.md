@@ -578,7 +578,10 @@ export DATABASE_URL=sqlite:///./forum.db   # 快速调试
 export DB_HOST=localhost DB_PORT=3306 DB_USER=forum_user DB_PASSWORD=forum_pass DB_NAME=forum_db
 export SECRET_KEY=your-secret-key-here
 
-# 3. 初始化数据库(建表 + 创建管理员 admin/admin123)
+# 3. 初始化数据库(建表 + 创建管理员)
+#    默认管理员为 admin，密码可通过 ADMIN_PASS 环境变量指定；
+#    未指定时使用内置弱口令，仅限本地开发 —— 生产环境请务必显式设置强口令。
+export ADMIN_USER=admin ADMIN_PASS='<你的强口令>'
 python init_db.py
 # 自定义管理员
 python init_db.py --admin admin --admin-pass MyStrongPass123
