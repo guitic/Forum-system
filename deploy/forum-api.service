@@ -83,6 +83,16 @@ Environment=PORT=5000
 # 上传目录指向可写路径，与 ReadWritePaths 保持一致
 Environment=UPLOAD_DIR=/var/lib/forum/uploads
 
+# ---------------------------- 图片压缩与日志 ----------------------------
+# 同时进行的图片压缩数上限（CPU 密集，限并发保护 gthread 线程池）
+Environment=IMAGE_COMPRESS_CONCURRENCY=2
+# 解码像素上限，防"解压炸弹"（默认 8000 万像素，正常照片不会触达）
+Environment=IMAGE_MAX_PIXELS=80000000
+# 结构化日志：LOG_LEVEL=DEBUG/INFO/WARNING/ERROR；LOG_FORMAT=text|json
+# 采集到 ELK/Loki 时设为 json（每行一个 JSON 对象，含 request_id/status/duration_ms）
+Environment=LOG_LEVEL=INFO
+Environment=LOG_FORMAT=text
+
 # ---------------------------- 启动命令 ----------------------------
 # 使用虚拟环境中的 python，直接调用 Flask CLI
 # 注意: 生产建议用 gunicorn 等 WSGI 服务器
