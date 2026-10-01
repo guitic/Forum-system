@@ -17,6 +17,7 @@
   <script src="vendor/highlight.min.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
   <div class="app">
     <!-- ==================== Header ==================== -->
     <header class="header">
@@ -36,7 +37,7 @@
     </header>
 
     <!-- ==================== Main ==================== -->
-    <main>
+    <main id="main-content">
       <div class="container">
         <!-- 返回条 -->
         <div class="back-bar">
@@ -173,7 +174,7 @@
   </div>
 
   <!-- ==================== Toast ==================== -->
-  <div id="toast-container" class="toast-container"></div>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <!-- ==================== Scripts ==================== -->
   <script src="js/api.js?v=7"></script>

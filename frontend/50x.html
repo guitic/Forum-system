@@ -8,11 +8,19 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
   <link rel="stylesheet" href="css/style.css?v=14" />
   <style>
+    /* Nocturne Glassmorphism：错误页专属布局，沿用全站玻璃令牌 */
     .err-wrap { display: flex; align-items: center; justify-content: center; padding: 64px 16px; }
     .err-card { max-width: 520px; width: 100%; text-align: center; padding: 48px 32px; }
-    .err-code { font-size: 72px; font-weight: 500; line-height: 1; color: var(--danger); letter-spacing: 2px; }
-    .err-title { margin: 16px 0 8px; font-size: 20px; color: var(--text); }
-    .err-desc { margin: 0 0 24px; font-size: 14px; line-height: 1.6; color: var(--text-2); }
+    .err-code {
+      font-size: 72px;
+      font-weight: 600;
+      line-height: 1;
+      letter-spacing: 2px;
+      color: var(--danger-text);
+      text-shadow: 0 4px 24px rgba(224, 138, 138, 0.24);
+    }
+    .err-title { margin: 18px 0 10px; font-size: 20px; font-weight: 600; color: var(--t-1); }
+    .err-desc { margin: 0 0 26px; font-size: 14px; line-height: 1.75; color: var(--t-2); }
     .err-actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
   </style>
 </head>

@@ -151,14 +151,16 @@
       me.username = localStorage.getItem("username") || "";
       me.nickname = localStorage.getItem("nickname") || "";
       me.avatarUrl = localStorage.getItem("avatar_url") || "";
-      me.role = localStorage.getItem("role") || "";
+      // L2：角色优先取 JWT 声明（服务端签发，不可在前端伪造），
+      //     localStorage 仅作无 token 时的回退展示。
+      me.role = API.getRole();
     } catch (e) { /* ignore */ }
     me.displayName = me.nickname || me.username;
     return me;
   }
 
   function isCurrentUserAdmin() {
-    return getCurrentUser().role === "admin";
+    return API.isAdmin();
   }
 
   function isCurrentUser(username) {

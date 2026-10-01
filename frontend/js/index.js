@@ -50,6 +50,172 @@
       .replace(/'/g, "&#39;");
   }
 
+  /* ------------------------------------------------------------------------
+   * Markdown 渲染（与详情页 post.js 保持一致的管线）
+   * - 列表卡片需要展示正文中的图片，因此不能再只用纯文本摘要
+   * - 复用全局 marked + API.sanitize，安全策略与详情页完全一致
+   * ---------------------------------------------------------------------- */
+
+  /** 是否存在 marked 全局（index.html 已引入 vendor/marked.min.js） */
+  function getMarked() {
+    return global.marked || (typeof window !== "undefined" ? window.marked : null);
+  }
+
+  /** marked 选项配置（一次性，与详情页对齐） */
+  var markedConfigured = false;
+  function setupMarked() {
+    var marked = getMarked();
+    if (!marked || markedConfigured) return;
+    try {
+      if (marked.use) {
+        marked.use({ gfm: true, breaks: true, pedantic: false, async: false });
+      } else if (marked.setOptions) {
+        marked.setOptions({
+          gfm: true, breaks: true, pedantic: false,
+          smartLists: true, mangle: false, headerIds: false, sanitize: false,
+        });
+      }
+      markedConfigured = true;
+    } catch (e) {
+      console.warn("[index.js] marked 配置失败:", e);
+    }
+  }
+
+  /**
+   * 渲染 Markdown 为安全 HTML
+   * @param {string} md
+   * @returns {string} 已 sanitize 的 HTML
+   */
+  function renderMarkdown(md) {
+    if (!md) return "";
+    var marked = getMarked();
+    var html;
+    if (marked) {
+      try {
+        html = marked.parse(md);
+      } catch (e) {
+        console.warn("[index.js] marked 解析失败，回退纯文本:", e);
+        html = "<p>" + escapeAttr(md) + "</p>";
+      }
+    } else {
+      html = "<p>" + escapeAttr(md) + "</p>";
+    }
+    return API.sanitize(html);
+  }
+
+  /**
+   * URL 安全校验（与 api.js 内部 isSafeUrl 协议白名单严格一致）
+   * api.js 未导出该函数，此处等价实现，确保列表侧不会渲染危险 URL
+   */
+  var SAFE_PROTOCOLS = ["http:", "https:", "mailto:", "tel:", "#"];
+  function isSafeUrl(url) {
+    if (!url) return false;
+    var u = String(url).trim().toLowerCase();
+    if (/[\u0000-\u001f\u007f]/.test(u)) return false;
+    if (/^(javascript|data|vbscript|file):/i.test(u)) return false;
+    var c0 = u.charAt(0);
+    if (c0 === "/" || c0 === "." || c0 === "#" || c0 === "?") return true;
+    for (var i = 0; i < SAFE_PROTOCOLS.length; i++) {
+      if (u.indexOf(SAFE_PROTOCOLS[i]) === 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 从 Markdown 正文中提取图片 URL 列表（按出现顺序，去重）
+   * 仅保留安全 URL；上限由调用方控制。
+   * @param {string} md
+   * @param {number} max
+   * @returns {string[]}
+   */
+  function extractImageUrls(md, max) {
+    if (!md) return [];
+    var urls = [];
+    var seen = Object.create(null);
+    var re = /!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)/g;
+    var m;
+    while ((m = re.exec(md)) !== null) {
+      var url = (m[1] || "").trim();
+      if (!url) continue;
+      if (!isSafeUrl(url)) continue;
+      if (seen[url]) continue;
+      seen[url] = true;
+      urls.push(url);
+      if (max && urls.length >= max) break;
+    }
+    return urls;
+  }
+
+  /**
+   * 缩略图缩放比例：统一缩至原图尺寸的 1/3（即上一版 1/6 的 2 倍）
+   * 通过 CSS 自定义属性下发，由 CSS 换算为响应式尺寸
+   */
+  var THUMB_SCALE = 1 / 3;
+
+  /**
+   * 构建列表卡片的图片缩略区
+   * 处理三类边界：懒加载、占位图、加载失败
+   * 尺寸策略：统一缩放至原图 1/3，保持原始宽高比，且不溢出容器
+   * @param {string[]} urls
+   * @returns {HTMLElement|null}
+   */
+  function buildPostImages(urls) {
+    if (!urls || !urls.length) return null;
+
+    var wrap = document.createElement("div");
+    wrap.className = "post-images" + (urls.length === 1 ? " single" : "");
+
+    urls.forEach(function (url) {
+      var fig = document.createElement("figure");
+      fig.className = "post-image-item is-loading";
+
+      var img = document.createElement("img");
+      img.className = "post-image-thumb";
+      img.alt = "帖子图片";
+      // 懒加载：视口外不请求；异步解码避免阻塞主线程
+      img.loading = "lazy";
+      img.decoding = "async";
+      img.src = url;
+
+      // 加载成功：按原图宽高比换算 1/3 尺寸，写入 CSS 变量
+      img.addEventListener("load", function () {
+        fig.classList.remove("is-loading", "is-error");
+        fig.classList.add("is-loaded");
+
+        var nw = img.naturalWidth;
+        var nh = img.naturalHeight;
+        if (nw > 0 && nh > 0) {
+          // 1/3 目标尺寸（px），作为宽度基准
+          var targetW = Math.round(nw * THUMB_SCALE);
+
+          // 宽高比（CSS aspect-ratio 支持单个数值：W/H）
+          var ratio = nw / nh;
+          // 写入“基准宽度”变量；最终宽度由 CSS 派生，
+          // 以便窄屏媒体查询能用 min() 稳定压小（内联变量无法被媒体查询覆盖）
+          fig.style.setProperty("--thumb-w-base", targetW + "px");
+          fig.style.setProperty("--thumb-ratio-num", String(ratio));
+        }
+      });
+
+      // 加载失败：降级为占位块（不回退成破图）
+      img.addEventListener("error", function () {
+        fig.classList.remove("is-loading", "is-loaded");
+        fig.classList.add("is-error");
+        img.removeAttribute("src");
+        img.classList.add("post-image-thumb--broken");
+        var ph = document.createElement("div");
+        ph.className = "post-image-fallback";
+        ph.textContent = "图片加载失败";
+        if (!fig.querySelector(".post-image-fallback")) fig.appendChild(ph);
+      });
+
+      fig.appendChild(img);
+      wrap.appendChild(fig);
+    });
+
+    return wrap;
+  }
+
   /** 数字千分位格式化 */
   function formatNum(n) {
     n = Number(n);
@@ -77,7 +243,8 @@
         username = localStorage.getItem("username") || "";
         nickname = localStorage.getItem("nickname") || "";
         avatarUrl = localStorage.getItem("avatar_url") || "";
-        role = localStorage.getItem("role") || "";
+        // L2：角色以 JWT 声明为准，localStorage 仅作回退
+        role = API.getRole();
       } catch (e) { /* ignore */ }
       var displayName = nickname || username;
 
@@ -294,12 +461,19 @@
         attrs: { href: "post.html?id=" + encodeURIComponent(id) },
         text: title,
       }),
+      // 摘要：去 Markdown 标记后的纯文本（图片语法已在 excerpt 中剔除）
       API.el("div", {
         class: "post-excerpt" + (excerpt ? "" : " text-light"),
         text: excerpt || "（无内容）",
       }),
-      meta,
     ]);
+
+    // 正文图片缩略区：与详情页一致地渲染（懒加载 + 占位 + 失败降级）
+    // 单独的容器，避免被 .post-excerpt 的 2 行截断裁掉
+    var imageUrls = extractImageUrls(content, 3);
+    var images = buildPostImages(imageUrls);
+    if (images) body.appendChild(images);
+    body.appendChild(meta);
 
     return API.el("article", {
       class: "card card-hover post-card",
@@ -578,6 +752,85 @@
   }
 
   /* ------------------------------------------------------------------------
+   * 头部：内容导航折叠（移动端）
+   * - 抽屉内容由桌面导航 tab / 搜索框 **克隆** 生成，DOM 里只保留一份"真身"，
+   *   避免头部出现重复的"首页/最新/热门/标签"与多余搜索框
+   * - 克隆节点与原节点在 setTab / syncSearchInputs 中按 `.nav-tab`、id 统一处理，
+   *   无需为抽屉单独维护状态
+   * ---------------------------------------------------------------------- */
+  function buildNavDrawer() {
+    var drawer = document.getElementById("nav-drawer");
+    if (!drawer || drawer.getAttribute("data-built") === "1") return;
+    drawer.setAttribute("data-built", "1");
+    drawer.innerHTML = "";
+
+    var srcTabs = document.querySelector(".header-inner > .nav-tabs");
+    if (srcTabs) {
+      var tabsClone = srcTabs.cloneNode(true);
+      tabsClone.removeAttribute("id");
+      drawer.appendChild(tabsClone);
+    }
+
+    var srcSearch = document.querySelector(".header-inner > .header-search");
+    if (srcSearch) {
+      var searchWrap = API.el("div", { class: "drawer-search" });
+      var searchClone = srcSearch.cloneNode(true);
+      // 克隆体会带上 `.header-search`，而该选择器在移动端是 display:none，
+      // 必须去掉才在抽屉里可见
+      searchClone.classList.remove("header-search");
+      var clonedInput = searchClone.querySelector("input");
+      if (clonedInput) {
+        // 必须换 id：cloneNode 会连 id 一起复制，重复 id 会导致
+        // getElementById 永远只命中桌面那个，抽屉搜索框静默失效
+        clonedInput.id = "drawer-search-input";
+      }
+      searchWrap.appendChild(searchClone);
+      drawer.appendChild(searchWrap);
+    }
+
+    // 抽屉内点击 tab：切页后收起抽屉
+    drawer.addEventListener("click", function (e) {
+      if (e.target.closest && e.target.closest(".nav-tab")) closeNavDrawer();
+    });
+  }
+
+  function openNavDrawer() {
+    document.documentElement.classList.add("nav-open");
+    setNavToggleState(true);
+  }
+
+  function closeNavDrawer() {
+    document.documentElement.classList.remove("nav-open");
+    setNavToggleState(false);
+  }
+
+  function setNavToggleState(open) {
+    var btn = document.getElementById("nav-toggle");
+    if (btn) {
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      btn.setAttribute("aria-label", open ? "收起内容导航菜单" : "打开内容导航菜单");
+    }
+  }
+
+  function bindNavToggle() {
+    var btn = document.getElementById("nav-toggle");
+    if (btn) {
+      btn.addEventListener("click", function () {
+        if (document.documentElement.classList.contains("nav-open")) closeNavDrawer();
+        else openNavDrawer();
+      });
+    }
+
+    // 视口回到桌面宽度时收起抽屉，避免状态残留
+    if (window.matchMedia) {
+      var mq = window.matchMedia("(min-width: 641px)");
+      var onChange = function (e) { if (e.matches) closeNavDrawer(); };
+      if (mq.addEventListener) mq.addEventListener("change", onChange);
+      else if (mq.addListener) mq.addListener(onChange);
+    }
+  }
+
+  /* ------------------------------------------------------------------------
    * 发帖模态框
    * ---------------------------------------------------------------------- */
   function openPostModal() {
@@ -670,6 +923,9 @@
    * 初始化
    * ---------------------------------------------------------------------- */
   function init() {
+    // 配置 Markdown 渲染（列表卡片图片展示依赖）
+    setupMarked();
+
     // 绑定 DOM
     dom.navActions = document.getElementById("nav-actions");
     dom.postList = document.getElementById("post-list");
@@ -703,8 +959,9 @@
       if (dom.postSubmitBtn) dom.postSubmitBtn.addEventListener("click", submitPost);
       // ESC 关闭
       document.addEventListener("keydown", function (e) {
-        if (e.key === "Escape" && !dom.postModal.classList.contains("hidden")) {
-          closePostModal();
+        if (e.key === "Escape") {
+          if (document.documentElement.classList.contains("nav-open")) closeNavDrawer();
+          if (!dom.postModal.classList.contains("hidden")) closePostModal();
         }
       });
       // Ctrl/Cmd + Enter 提交
@@ -728,7 +985,12 @@
       }
     }
 
-    // Tab 切换（桌面导航 + 移动抽屉）
+    // 移动端折叠导航（抽屉内容由桌面节点克隆，保证头部无重复元素）
+    // 必须在下方绑定 .nav-tab 之前执行，否则克隆出来的 tab 拿不到点击监听
+    buildNavDrawer();
+    bindNavToggle();
+
+    // Tab 切换（桌面导航 + 移动抽屉：抽屉内为克隆节点，此处统一绑定）
     var tabBtns = document.querySelectorAll(".nav-tab");
     Array.prototype.forEach.call(tabBtns, function (btn) {
       btn.addEventListener("click", function () {

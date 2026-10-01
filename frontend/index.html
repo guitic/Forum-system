@@ -9,7 +9,7 @@
   <meta name="description" content="GraphFlow 技术交流论坛 - 分享技术、交流想法、共同成长的开发者社区" />
   <title>GraphFlow 技术交流论坛</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>" />
-  <link rel="stylesheet" href="css/style.css?v=14" />
+  <link rel="stylesheet" href="css/style.css?v=17" />
   <!-- marked.js - Markdown 解析（本地自托管，版本锁定 v12.0.2，规避 CDN 依赖与 CSP 拦截） -->
   <script src="vendor/marked.min.js"></script>
   <!-- highlight.js - 代码高亮（本地自托管 v11.9.0，含常用语言） -->
@@ -17,6 +17,7 @@
   <script src="vendor/highlight.min.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
   <div class="app">
     <!-- ==================== Header ==================== -->
     <header class="header">
@@ -28,7 +29,7 @@
           <span>GraphFlow 论坛</span>
         </a>
 
-        <!-- 中部导航 tab -->
+        <!-- 中部导航 tab（桌面 inline / 移动搬进 nav-drawer） -->
         <nav class="nav-tabs" aria-label="内容导航">
           <button type="button" class="nav-tab active" data-tab="default" aria-pressed="true">首页</button>
           <button type="button" class="nav-tab" data-tab="latest" aria-pressed="false">最新</button>
@@ -36,7 +37,7 @@
           <button type="button" class="nav-tab" data-tab="tags" aria-pressed="false">标签</button>
         </nav>
 
-        <!-- 搜索 -->
+        <!-- 搜索（桌面可见；移动端由 nav-drawer 内的克隆节点承载） -->
         <div class="header-search">
           <div class="search-box">
             <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
@@ -49,30 +50,18 @@
         <!-- 登录 / 用户下拉（由 index.js 动态渲染） -->
         <div class="nav-actions" id="nav-actions"></div>
 
-        <!-- 移动端汉堡（checkbox hack，input 须位于 .nav-drawer 之前） -->
-        <input type="checkbox" id="nav-toggle-input" class="nav-toggle-input" />
-        <label for="nav-toggle-input" class="nav-toggle" title="打开菜单" aria-label="打开菜单">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg>
-        </label>
-        <div class="nav-drawer">
-          <div class="nav-tabs" aria-label="内容导航">
-            <button type="button" class="nav-tab active" data-tab="default">首页</button>
-            <button type="button" class="nav-tab" data-tab="latest">最新</button>
-            <button type="button" class="nav-tab" data-tab="hot">热门</button>
-            <button type="button" class="nav-tab" data-tab="tags">标签</button>
-          </div>
-          <div class="drawer-search">
-            <div class="search-box">
-              <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/></svg>
-              <input type="search" id="drawer-search-input" class="search-input" placeholder="搜索帖子标题 / 内容…" aria-label="搜索帖子" autocomplete="off" />
-            </div>
-          </div>
-        </div>
+        <!-- 移动端折叠开关：纯 CSS 图标按钮（无 checkbox，避免头部出现多余白色方框） -->
+        <button type="button" id="nav-toggle" class="nav-toggle" aria-expanded="false" aria-controls="nav-drawer" aria-label="打开内容导航菜单" title="内容导航">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg>
+        </button>
+
+        <!-- 移动端抽屉：内容由 index.js 从上方导航 tab / 搜索框克隆生成（DOM 中只保留一份真身） -->
+        <div class="nav-drawer" id="nav-drawer"></div>
       </div>
     </header>
 
     <!-- ==================== Main ==================== -->
-    <main>
+    <main id="main-content">
       <div class="container">
         <!-- 轻量标语条 -->
         <div class="site-banner">
@@ -192,11 +181,11 @@
   </div>
 
   <!-- ==================== Toast ==================== -->
-  <div id="toast-container" class="toast-container"></div>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <!-- ==================== Scripts ==================== -->
   <script src="js/api.js?v=7"></script>
   <script src="js/image-upload.js?v=2"></script>
-  <script src="js/index.js?v=12"></script>
+  <script src="js/index.js?v=16"></script>
 </body>
 </html>

@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="css/style.css?v=14" />
 </head>
 <body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
   <div class="app">
     <!-- ==================== Header ==================== -->
     <header class="header">
@@ -30,7 +31,7 @@
     </header>
 
     <!-- ==================== Main ==================== -->
-    <main>
+    <main id="main-content">
       <div class="container">
         <!-- 加载中 -->
         <div id="profile-loading" class="loading">正在加载资料…</div>
@@ -225,7 +226,7 @@
   </div>
 
   <!-- ==================== Toast ==================== -->
-  <div id="toast-container" class="toast-container"></div>
+  <div id="toast-container" class="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <!-- ==================== Scripts ==================== -->
   <script src="js/api.js?v=7"></script>

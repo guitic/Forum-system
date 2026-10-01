@@ -38,7 +38,8 @@
     var nickname = "";
     try { nickname = localStorage.getItem("nickname") || ""; } catch (e) { /* ignore */ }
     var role = "";
-    try { role = localStorage.getItem("role") || ""; } catch (e) { /* ignore */ }
+    // L2：角色以 JWT 声明为准，localStorage 仅作回退
+    try { role = API.getRole(); } catch (e) { /* ignore */ }
     var displayName = nickname || username;
 
     // 头像 + 下拉菜单（与首页 / 详情页一致）
@@ -84,7 +85,8 @@
     var avatarUrl = "";
     try { avatarUrl = localStorage.getItem("avatar_url") || ""; } catch (e) { /* ignore */ }
     var role = "";
-    try { role = localStorage.getItem("role") || ""; } catch (e) { /* ignore */ }
+    // L2：角色以 JWT 声明为准，localStorage 仅作回退
+    try { role = API.getRole(); } catch (e) { /* ignore */ }
     var cls = sizeClass || "avatar";
     if (role === "admin") cls += " avatar-admin";
     if (avatarUrl) {

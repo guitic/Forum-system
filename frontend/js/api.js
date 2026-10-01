@@ -47,6 +47,67 @@
   };
 
   /* ------------------------------------------------------------------------
+   * 角色解析（L2：管理端 UI 不得仅凭 localStorage 判定）
+   * ----------------------------------------------------------------------
+   * 背景：localStorage 中的 role 可被任意用户在控制台改写（如
+   *   localStorage.setItem("role","admin")），据此渲染管理员 UI 属于
+   *   "信任客户端输入"。虽然真正的鉴权始终在后端（require_auth 校验 JWT），
+   *   但前端展示层也不应让伪造的 role 决定特权入口的可见性。
+   *
+   * 策略：以 JWT 载荷中的 role 声明为首选来源。
+   *   - JWT 由后端 HS256 签名，前端仅做 base64 解载荷（不验签、也无必要），
+   *     改 payload 会破坏签名、后端请求即 401，因此"是否 admin"以它为准，
+   *     比 localStorage 更可信；
+   *   - 注意：解码得到的是"服务端签发时的角色快照"，仅用于 UI 显示，
+   *     真正的权限判定一律在后端完成；
+   *   - 无 token 或解析失败时回退 localStorage，保证未登录/异常场景不崩。
+   * ---------------------------------------------------------------------- */
+
+  /** 解码 JWT 的 payload 段（不验签，仅取声明）。失败返回 null。 */
+  function decodeJwtPayload(token) {
+    if (!token || typeof token !== "string") return null;
+    var parts = token.split(".");
+    if (parts.length !== 3) return null;
+    try {
+      var base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      // 补齐 base64 padding
+      while (base64.length % 4 !== 0) base64 += "=";
+      var json = decodeURIComponent(
+        atob(base64)
+          .split("")
+          .map(function (c) {
+            return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+          })
+          .join("")
+      );
+      return JSON.parse(json);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /**
+   * 取得当前登录用户的角色（'admin' / 'user' / ''）。
+   * 优先取 JWT 声明的 role，回退 localStorage 缓存。
+   */
+  API.getRole = function () {
+    var payload = decodeJwtPayload(API.getToken());
+    if (payload && typeof payload.role === "string" && payload.role) {
+      return payload.role;
+    }
+    try {
+      return localStorage.getItem("role") || "";
+    } catch (e) {
+      return "";
+    }
+  };
+
+  /** 当前用户是否为管理员（UI 展示用；真实鉴权在后端）。 */
+  API.isAdmin = function () {
+    return API.getRole() === "admin";
+  };
+
+  /* ------------------------------------------------------------------------
    * 工具函数
    * ---------------------------------------------------------------------- */
 
@@ -471,12 +532,19 @@
     table: 1, thead: 1, tbody: 1, tfoot: 1, tr: 1, th: 1, td: 1,
     span: 1,
     img: 1,
+    // L4：响应式图片组合（<picture> 包裹 <source> + <img>）。
+    // 二者本身不执行脚本，srcset 仍走 isSafeUrl 协议白名单校验，
+    // 加入白名单可让 markdown 中合法的响应式图片正常渲染而不被剥成纯文本。
+    picture: 1,
+    source: 1,
     u: 1,
   };
 
   var ALLOWED_ATTRS = {
     a: ["href", "title", "target", "rel"],
-    img: ["src", "alt", "title"],
+    img: ["src", "alt", "title", "srcset", "sizes", "loading", "width", "height"],
+    // source 仅允许资源地址与媒体查询，media/type 用于 <picture> 的格式与尺寸分支
+    source: ["srcset", "sizes", "media", "type"],
     code: ["class"],
     span: ["class"],
     td: ["align"],
@@ -538,10 +606,32 @@
       if (name === "href" || name === "src") {
         if (!isSafeUrl(value)) continue;
       }
+      // srcset 是「URL [描述符], URL [描述符]」的列表，需逐项校验协议，
+      // 任一候选项不安全即整条丢弃（避免 javascript: 混入 srcset 绕过检查）。
+      if (name === "srcset") {
+        if (!isSafeSrcset(value)) continue;
+      }
 
       result.push(name + '="' + escapeAttr(value) + '"');
     }
     return result.join(" ");
+  }
+
+  /**
+   * 校验 srcset 的每一项 URL 是否安全。
+   * 形如 "a.png 1x, b.png 2x, c.png 800w"；候选项以逗号分隔，
+   * 每项首段为 URL、其后为宽度/密度描述符（描述符不参与协议校验）。
+   */
+  function isSafeSrcset(value) {
+    if (!value) return false;
+    var items = String(value).split(",");
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i].trim();
+      if (!item) continue;
+      var url = item.split(/\s+/)[0];
+      if (!isSafeUrl(url)) return false;
+    }
+    return true;
   }
 
   function escapeAttr(v) {
