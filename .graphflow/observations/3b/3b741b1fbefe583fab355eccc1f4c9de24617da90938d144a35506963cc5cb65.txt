@@ -1,0 +1,688 @@
+<path>D:\桌面\deep\Forum system\deploy\monitor.py</path>
+<type>file</type>
+<content>
+1: #!/usr/bin/env python3
+2: # -*- coding: utf-8 -*-
+3: """
+4: 论坛系统日志巡检与告警脚本
+5: ============================================================================
+6: 部署位置: /opt/forum/scripts/monitor.py
+7: 适用环境: Rocky Linux 8/9 + Nginx + systemd + MariaDB
+8: 说明:
+9:   - 检查 Nginx access.log 中的 5xx 状态码统计
+10:   - 检查 Nginx error.log 中的错误级别 (error/crit/alert/emerg)
+11:   - 检查 systemd 后端服务 (forum-api) 是否处于 active 状态
+12:   - 检查系统资源 (磁盘、内存、CPU 负载)
+13:   - 检查 MariaDB 连接健康
+14:   - 超阈值或异常时通过 SMTP 发送告警邮件到管理员邮箱
+15:   - 配置全部集中在 CONFIG 字典，便于修改
+16: 用法:
+17:   python3 monitor.py               # 执行巡检并按阈值告警
+18:   python3 monitor.py --dry-run     # 仅打印巡检结果，不发送邮件
+19:   python3 monitor.py --json        # 以 JSON 格式输出巡检结果
+20:   python3 monitor.py --verbose     # 输出调试信息
+21: """
+22: 
+23: from __future__ import annotations
+24: 
+25: import argparse
+26: import datetime as _dt
+27: import json
+28: import logging
+29: import os
+30: import re
+31: import smtplib
+32: import subprocess
+33: import sys
+34: import time
+35: from dataclasses import dataclass, field
+36: from email.message import EmailMessage
+37: from pathlib import Path
+38: from typing import Any, Dict, List, Optional, Tuple
+39: 
+40: # ============================================================================
+41: # 配置区 - 修改此处即可适配实际环境
+42: # ============================================================================
+43: 
+44: CONFIG: Dict[str, Any] = {
+45:     # ---------------------------- 日志路径 ----------------------------
+46:     "nginx_access_log": "/var/log/nginx/forum_access.log",
+47:     "nginx_error_log":  "/var/log/nginx/forum_error.log",
+48:     # 兼容默认 Nginx 日志
+49:     "nginx_default_access_log": "/var/log/nginx/access.log",
+50:     "nginx_default_error_log":  "/var/log/nginx/error.log",
+51: 
+52:     # ---------------------------- systemd 服务 ----------------------------
+53:     "service_name": "forum-api",
+54: 
+55:     # ---------------------------- 阈值 ----------------------------
+56:     # 5xx 状态码: 检查时间窗口 (分钟) 内出现次数超过此值即告警
+57:     "error_window_minutes": 5,
+58:     "error_5xx_threshold": 10,
+59:     # error.log 中 error 级别及以上出现次数阈值
+60:     "error_log_threshold": 5,
+61:     # 磁盘使用率 (%) 超过告警
+62:     "disk_threshold": 85,
+63:     # 内存使用率 (%) 超过告警
+64:     "memory_threshold": 90,
+65:     # 5 分钟 CPU 负载 / CPU 核数 超过告警
+66:     "load_threshold": 2.0,
+67:     # 连续失败次数 (用于抑制重复告警)
+68:     "consecutive_failures_threshold": 3,
+69: 
+70:     # ---------------------------- SMTP ----------------------------
+71:     "smtp_host": "smtp.example.com",
+72:     "smtp_port": 465,
+73:     "smtp_use_ssl": True,
+74:     "smtp_use_starttls": False,
+75:     "smtp_user": "forum-alert@example.com",
+76:     "smtp_password": "[REDACTED:credential]",
+77:     "alert_from": "Forum Monitor <forum-alert@example.com>",
+78:     "alert_to": ["admin@example.com"],
+79: 
+80:     # ---------------------------- 数据库 ----------------------------
+81:     "db_host": "127.0.0.1",
+82:     "db_port": 3306,
+83:     "db_user": "forum",
+84:     "db_password": "[REDACTED:credential]",
+85:     "db_name": "forum",
+86:     "db_check_timeout": 5,
+87: 
+88:     # ---------------------------- 报告 ----------------------------
+89:     "state_dir": "/var/lib/forum/monitor",
+90:     "log_file": "/var/log/forum/monitor.log",
+91:     "report_retention_days": 7,
+92:     "verbose": False,
+93: }
+94: 
+95: 
+96: # ============================================================================
+97: # 日志
+98: # ============================================================================
+99: 
+100: def _setup_logger() -> logging.Logger:
+101:     logger = logging.getLogger("forum_monitor")
+102:     logger.setLevel(logging.DEBUG if CONFIG["verbose"] else logging.INFO)
+103:     logger.handlers.clear()
+104: 
+105:     fh = logging.FileHandler(CONFIG["log_file"], encoding="utf-8")
+106:     fh.setFormatter(logging.Formatter(
+107:         "%(asctime)s [%(levelname)s] %(message)s",
+108:         datefmt="%Y-%m-%d %H:%M:%S",
+109:     ))
+110:     logger.addHandler(fh)
+111: 
+112:     ch = logging.StreamHandler(sys.stdout)
+113:     ch.setLevel(logging.DEBUG if CONFIG["verbose"] else logging.INFO)
+114:     ch.setFormatter(logging.Formatter(
+115:         "%(asctime)s [%(levelname)s] %(message)s",
+116:         datefmt="%H:%M:%S",
+117:     ))
+118:     logger.addHandler(ch)
+119: 
+120:     return logger
+121: 
+122: 
+123: LOG = _setup_logger()
+124: 
+125: 
+126: # ============================================================================
+127: # 工具函数
+128: # ============================================================================
+129: 
+130: def run_cmd(cmd: str, timeout: int = 15) -> Tuple[int, str, str]:
+131:     """执行 shell 命令并返回 (exit_code, stdout, stderr)。"""
+132:     try:
+133:         p = subprocess.run(
+134:             cmd, shell=True, capture_output=True, text=True, timeout=timeout,
+135:         )
+136:         return p.returncode, p.stdout, p.stderr
+137:     except subprocess.TimeoutExpired:
+138:         return -1, "", "timeout"
+139:     except Exception as exc:  # pragma: no cover
+140:         return -1, "", str(exc)
+141: 
+142: 
+143: def file_recently_written(path: str) -> bool:
+144:     """判断文件在过去若干秒内被写入。"""
+145:     p = Path(path)
+146:     if not p.exists():
+147:         return False
+148:     age = time.time() - p.stat().st_mtime
+149:     return age < 3600  # 1 小时内
+150: 
+151: 
+152: def parse_log_ts(line: str) -> Optional[_dt.datetime]:
+153:     """从 Nginx access log 中解析时间戳 (支持常见格式)。"""
+154:     # Nginx 默认格式: 2024/01/01 12:34:56 +0800
+155:     m = re.search(r"\[([^\]]+)\]", line)
+156:     if not m:
+157:         return None
+158:     raw = m.group(1)
+159:     for fmt in (
+160:         "%d/%b/%Y:%H:%M:%S %z",
+161:         "%Y-%m-%d %H:%M:%S",
+162:         "%Y-%m-%dT%H:%M:%S",
+163:     ):
+164:         try:
+165:             return _dt.datetime.strptime(raw, fmt)
+166:         except ValueError:
+167:             continue
+168:     return None
+169: 
+170: 
+171: def tail_lines(path: str, since: Optional[_dt.datetime] = None) -> List[str]:
+172:     """读取日志，可按时间窗口过滤。"""
+173:     p = Path(path)
+174:     if not p.exists():
+175:         return []
+176:     try:
+177:         with p.open("r", encoding="utf-8", errors="replace") as f:
+178:             lines = f.readlines()
+179:     except Exception as exc:
+180:         LOG.warning("读取日志失败 %s: %s", path, exc)
+181:         return []
+182:     if since is None:
+183:         return lines
+184:     result: List[str] = []
+185:     for ln in lines:
+186:         ts = parse_log_ts(ln)
+187:         if ts is None:
+188:             # 无时间戳的行（如 error.log 多行），保守保留
+189:             result.append(ln)
+190:             continue
+191:         if ts >= since:
+192:             result.append(ln)
+193:     return result
+194: 
+195: 
+196: def parse_access_log_status(line: str) -> Optional[int]:
+197:     """解析 access log 中的 HTTP 状态码。"""
+198:     # 标准 Nginx 格式: ... "GET / HTTP/1.1" 200 ...
+199:     m = re.search(r'"[^"]*"\s+(\d{3})\s', line)
+200:     if m:
+201:         try:
+202:             return int(m.group(1))
+203:         except ValueError:
+204:             return None
+205:     # 兼容自定义格式: 状态码作为单独的字段
+206:     m = re.search(r"\s(\d{3})\s+(\d+)", line)
+207:     if m:
+208:         try:
+209:             return int(m.group(1))
+210:         except ValueError:
+211:             return None
+212:     return None
+213: 
+214: 
+215: def parse_error_log_level(line: str) -> Optional[str]:
+216:     """解析 error.log 中的级别 (debug/info/notice/warning/error/crit/alert/emerg)。"""
+217:     # Nginx error.log 格式: 2024/01/01 12:34:56 [error] ...
+218:     m = re.search(r"\[(\w+)\]", line)
+219:     return m.group(1).lower() if m else None
+220: 
+221: 
+222: def shell_awk(pattern: str, file: str) -> Tuple[int, str]:
+223:     """调用系统 awk 做轻量检索。"""
+224:     cmd = f"grep -cE {pattern!r} {file!r} 2>/dev/null"
+225:     code, out, _ = run_cmd(cmd)
+226:     try:
+227:         return int(out.strip() or "0")
+228:     except ValueError:
+229:         return 0
+230: 
+231: 
+232: # ============================================================================
+233: # 检查项 - 返回 (状态, 详情, 是否告警)
+234: # ============================================================================
+235: 
+236: @dataclass
+237: class CheckResult:
+238:     name: str
+239:     ok: bool
+240:     detail: str
+241:     alert: bool = False
+242: 
+243: 
+244: def check_5xx() -> CheckResult:
+245:     """检查 access.log 中 5xx 状态码。"""
+246:     access = CONFIG["nginx_access_log"]
+247:     if not Path(access).exists():
+248:         access = CONFIG["nginx_default_access_log"]
+249: 
+250:     since = _dt.datetime.now() - _dt.timedelta(minutes=CONFIG["error_window_minutes"])
+251:     lines = tail_lines(access, since=since)
+252: 
+253:     count_5xx = 0
+254:     count_5xx_sample: List[str] = []
+255:     for ln in lines:
+256:         status = parse_access_log_status(ln)
+257:         if status is not None and 500 <= status < 600:
+258:             count_5xx += 1
+259:             if len(count_5xx_sample) < 5:
+260:                 count_5xx_sample.append(ln.strip()[:200])
+261: 
+262:     threshold = CONFIG["error_5xx_threshold"]
+263:     ok = count_5xx <= threshold
+264:     detail = (
+265:         f"5xx 状态码: {count_5xx} 次 / {threshold} 阈值 "
+266:         f"(窗口 {CONFIG['error_window_minutes']} 分钟, 日志: {access})"
+267:     )
+268:     if count_5xx_sample:
+269:         detail += f"\n  样本: {count_5xx_sample[0]}"
+270:     return CheckResult(
+271:         name="Nginx 5xx 错误率",
+272:         ok=ok,
+273:         detail=detail,
+274:         alert=not ok,
+275:     )
+276: 
+277: 
+278: def check_error_log() -> CheckResult:
+279:     """检查 error.log 中 error 及以上级别。"""
+280:     err = CONFIG["nginx_error_log"]
+281:     if not Path(err).exists():
+282:         err = CONFIG["nginx_default_error_log"]
+283: 
+284:     # 用 grep -c 统计 [error]/[crit]/[alert]/[emerg]
+285:     pattern = r"\[(error|crit|alert|emerg)\]"
+286:     if Path(err).exists():
+287:         since = _dt.datetime.now() - _dt.timedelta(minutes=CONFIG["error_window_minutes"])
+288:         count = sum(
+289:             1 for ln in tail_lines(err, since=since)
+290:             if (lvl := parse_error_log_level(ln)) in {"error", "crit", "alert", "emerg"}
+291:         )
+292:     else:
+293:         count = 0
+294: 
+295:     threshold = CONFIG["error_log_threshold"]
+296:     ok = count <= threshold
+297:     return CheckResult(
+298:         name="Nginx 错误日志",
+299:         ok=ok,
+300:         detail=f"error+ 级别日志: {count} 条 / {threshold} 阈值 (日志: {err})",
+301:         alert=not ok,
+302:     )
+303: 
+304: 
+305: def check_service() -> CheckResult:
+306:     """检查 systemd 服务 forum-api 是否 active。"""
+307:     svc = CONFIG["service_name"]
+308:     code, out, _ = run_cmd(f"systemctl is-active {svc} 2>&1")
+309:     status = out.strip() if out else "unknown"
+310:     ok = status == "active"
+311:     return CheckResult(
+312:         name=f"systemd 服务 {svc}",
+313:         ok=ok,
+314:         detail=f"状态: {status}",
+315:         alert=not ok,
+316:     )
+317: 
+318: 
+319: def check_database() -> CheckResult:
+320:     """检查 MariaDB 连接。"""
+321:     db_host = CONFIG["db_host"]
+322:     db_port = CONFIG["db_port"]
+323:     db_user = CONFIG["db_user"]
+324:     db_pwd = [REDACTED:credential]["db_password"]
+325:     db_name = CONFIG["db_name"]
+326:     timeout = CONFIG["db_check_timeout"]
+327: 
+328:     code, out, _ = run_cmd(
+329:         f'mariadb -h{db_host} -P{db_port} -u{db_user} -p{db_pwd} '
+330:         f'-D{db_name} -e "SELECT 1;" --connect-timeout={timeout} 2>&1',
+331:         timeout=timeout + 2,
+332:     )
+333:     if code == 0 and "Access denied" not in out:
+334:         ok = True
+335:         detail = f"数据库 {db_host}:{db_port}/{db_name} 连接正常"
+336:     else:
+337:         ok = False
+338:         detail = f"数据库连接失败: {out.strip()[:200]}"
+339:     return CheckResult(
+340:         name="MariaDB 连接",
+341:         ok=ok,
+342:         detail=detail,
+343:         alert=not ok,
+344:     )
+345: 
+346: 
+347: def check_disk() -> CheckResult:
+348:     """检查磁盘使用率。"""
+349:     code, out, _ = run_cmd("df -P /opt / 2>/dev/null")
+350:     threshold = CONFIG["disk_threshold"]
+351:     worst = 0
+352:     worst_path = ""
+353:     for ln in out.splitlines():
+354:         parts = ln.split()
+355:         if len(parts) < 6 or not parts[4].endswith("%"):
+356:             continue
+357:         try:
+358:             used = int(parts[4].rstrip("%"))
+359:         except ValueError:
+360:             continue
+361:         if used > worst:
+362:             worst = used
+363:             worst_path = parts[1]
+364:     ok = worst <= threshold
+365:     return CheckResult(
+366:         name="磁盘使用率",
+367:         ok=ok,
+368:         detail=f"最高使用率: {worst}% (挂载: {worst_path}) / {threshold}% 阈值",
+369:         alert=not ok,
+370:     )
+371: 
+372: 
+373: def check_memory() -> CheckResult:
+374:     """检查内存使用率。"""
+375:     code, out, _ = run_cmd("free -m 2>/dev/null")
+376:     threshold = CONFIG["memory_threshold"]
+377:     try:
+378:         parts = out.splitlines()[0].split()
+379:         total = int(parts[1])
+380:         used = int(parts[2])
+381:         pct = round(used * 100 / total, 1) if total else 0
+382:     except Exception:
+383:         pct, total, used = 0, 0, 0
+384:     ok = pct <= threshold
+385:     return CheckResult(
+386:         name="内存使用率",
+387:         ok=ok,
+388:         detail=f"内存: {used}/{total} MB ({pct}%) / {threshold}% 阈值",
+389:         alert=not ok,
+390:     )
+391: 
+392: 
+393: def check_load() -> CheckResult:
+394:     """检查 CPU 负载。"""
+395:     code, out, _ = run_cmd("cat /proc/loadavg 2>/dev/null")
+396:     try:
+397:         load1, load5, load15 = (float(x) for x in out.split()[:3])
+398:     except Exception:
+399:         load1 = load5 = load15 = 0.0
+400: 
+401:     code2, out2, _ = run_cmd("nproc 2>/dev/null")
+402:     try:
+403:         cores = max(1, int(out2.strip()))
+404:     except Exception:
+405:         cores = 1
+406: 
+407:     ratio = round(load5 / cores, 2)
+408:     threshold = CONFIG["load_threshold"]
+409:     ok = ratio <= threshold
+410:     return CheckResult(
+411:         name="CPU 负载",
+412:         ok=ok,
+413:         detail=(
+414:             f"load(1/5/15): {load1}/{load5}/{load15}, "
+415:             f"核数={cores}, 比={ratio} / {threshold} 阈值"
+416:         ),
+417:         alert=not ok,
+418:     )
+419: 
+420: 
+421: # ============================================================================
+422: # 告警状态跟踪 (防止重复告警)
+423: # ============================================================================
+424: 
+425: class AlertState:
+426:     """记录每个检查项的连续失败次数，用于抑制重复告警。"""
+427: 
+428:     def __init__(self, state_dir: str) -> None:
+429:         self.dir = Path(state_dir)
+430:         self.dir.mkdir(parents=True, exist_ok=True)
+431:         self.path = self.dir / "alert_state.json"
+432:         self.data: Dict[str, int] = {}
+433:         if self.path.exists():
+434:             try:
+435:                 self.data = json.loads(self.path.read_text(encoding="utf-8"))
+436:             except Exception:
+437:                 self.data = {}
+438: 
+439:     def increment(self, name: str) -> int:
+440:         self.data[name] = self.data.get(name, 0) + 1
+441:         self._save()
+442:         return self.data[name]
+443: 
+444:     def reset(self, name: str) -> None:
+445:         self.data.pop(name, None)
+446:         self._save()
+447: 
+448:     def get(self, name: str) -> int:
+449:         return self.data.get(name, 0)
+450: 
+451:     def _save(self) -> None:
+452:         try:
+453:             self.path.write_text(
+454:                 json.dumps(self.data, ensure_ascii=False, indent=2),
+455:                 encoding="utf-8",
+456:             )
+457:         except Exception as exc:
+458:             LOG.warning("保存告警状态失败: %s", exc)
+459: 
+460: 
+461: # ============================================================================
+462: # 邮件发送
+463: # ============================================================================
+464: 
+465: def send_alert_email(subject: str, body_html: str, body_text: str) -> bool:
+466:     """通过 SMTP 发送告警邮件。"""
+467:     msg = EmailMessage()
+468:     msg["Subject"] = subject
+469:     msg["From"] = CONFIG["alert_from"]
+470:     msg["To"] = ", ".join(CONFIG["alert_to"])
+471:     msg.set_content(body_text)
+472:     msg.add_alternative(body_html, subtype="html")
+473: 
+474:     host = CONFIG["smtp_host"]
+475:     port = CONFIG["smtp_port"]
+476:     user = CONFIG["smtp_user"]
+477:     pwd = [REDACTED:credential]["smtp_password"]
+478: 
+479:     try:
+480:         if CONFIG["smtp_use_ssl"]:
+481:             smtp = smtplib.SMTP_SSL(host, port, timeout=20)
+482:         else:
+483:             smtp = smtplib.SMTP(host, port, timeout=20)
+484:             if CONFIG["smtp_use_starttls"]:
+485:                 smtp.starttls()
+486:         smtp.login(user, pwd)
+487:         smtp.send_message(msg)
+488:         smtp.quit()
+489:         LOG.info("告警邮件发送成功 → %s", CONFIG["alert_to"])
+490:         return True
+491:     except Exception as exc:
+492:         LOG.error("告警邮件发送失败: %s", exc)
+493:         return False
+494: 
+495: 
+496: # ============================================================================
+497: # 报告渲染
+498: # ============================================================================
+499: 
+500: def render_report(results: List[CheckResult],
+501:                   consecutive: Optional[Dict[str, int]] = None,
+502:                   ) -> Tuple[str, str]:
+503:     """返回 (html, text) 双格式报告。"""
+504:     now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+505:     host = os.uname().nodename
+506:     critical = [r for r in results if r.alert]
+507:     status = "🟢 正常" if not critical else "🔴 异常"
+508: 
+509:     # 文本格式
+510:     text_lines = [
+511:         f"论坛系统巡检报告  {now}",
+512:         f"主机: {host}    总体状态: {status}",
+513:         "=" * 60,
+514:     ]
+515:     for r in results:
+516:         flag = "✅" if r.ok else ("🚨" if r.alert else "⚠️")
+517:         text_lines.append(f"{flag} [{r.name}]")
+518:         for dline in r.detail.splitlines():
+519:             text_lines.append(f"    {dline}")
+520:         if consecutive:
+521:             cnt = consecutive.get(r.name, 0)
+522:             if cnt:
+523:                 text_lines.append(f"    连续失败: {cnt} 次")
+524:         text_lines.append("")
+525: 
+526:     # HTML 格式
+527:     html_rows = []
+528:     for r in results:
+529:         color = "#28a745" if r.ok else ("#dc3545" if r.alert else "#ffc107")
+530:         icon = "✅" if r.ok else ("🚨" if r.alert else "⚠️")
+531:         cnt = (consecutive or {}).get(r.name, 0)
+532:         cnt_html = f'<div style="font-size:0.85em;color:#666;">连续失败 {cnt} 次</div>' if cnt else ""
+533:         html_rows.append(
+534:             f'<tr>'
+535:             f'<td style="padding:10px;border-bottom:1px solid #eee;">{icon} {r.name}</td>'
+536:             f'<td style="padding:10px;border-bottom:1px solid #eee;">'
+537:             f'<span style="color:{color};font-weight:bold;">'
+538:             f'{"正常" if r.ok else "告警"}</span>'
+539:             f'<br><small style="color:#666;">{r.detail.replace(chr(10), "<br>")}</small>'
+540:             f'{cnt_html}</td>'
+541:             f'</tr>'
+542:         )
+543: 
+544:     html = f"""<!DOCTYPE html>
+545: <html><head><meta charset="utf-8">
+546: <style>
+547: body {{ font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; max-width: 820px; margin: 24px auto; color: #333; }}
+548: h1 {{ color: #333; border-bottom: 3px solid {'#dc3545' if critical else '#28a745'}; padding-bottom: 8px; }}
+549: .meta {{ color: #666; margin-bottom: 16px; }}
+550: table {{ width: 100%; border-collapse: collapse; }}
+551: th {{ text-align: left; padding: 12px; background: #f8f9fa; }}
+552: .footer {{ margin-top: 24px; color: #999; font-size: 0.85em; }}
+553: </style></head><body>
+554: <h1>论坛系统巡检报告</h1>
+555: <div class="meta">时间: {now}　|　主机: {host}　|　总体状态: <b style="color:{'#dc3545' if critical else '#28a745'}">{status}</b></div>
+556: <table><tr><th>检查项</th><th>结果</th></tr>{''.join(html_rows)}</table>
+557: <div class="footer">本报告由 forum monitor.py 自动生成，若未主动修复请通知运维团队。</div>
+558: </body></html>"""
+559: 
+560:     return html, "\n".join(text_lines)
+561: 
+562: 
+563: # ============================================================================
+564: # 主流程
+565: # ============================================================================
+566: 
+567: def run_checks() -> List[CheckResult]:
+568:     """执行所有检查项。"""
+569:     checks = [
+570:         check_5xx,
+571:         check_error_log,
+572:         check_service,
+573:         check_database,
+574:         check_disk,
+575:         check_memory,
+576:         check_load,
+577:     ]
+578:     results: List[CheckResult] = []
+579:     for fn in checks:
+580:         try:
+581:             r = fn()
+582:             results.append(r)
+583:         except Exception as exc:
+584:             LOG.exception("检查 %s 抛出异常: %s", fn.__name__, exc)
+585:             results.append(CheckResult(
+586:                 name=fn.__name__,
+587:                 ok=False,
+588:                 detail=f"检查抛出异常: {exc}",
+589:                 alert=True,
+590:             ))
+591:     return results
+592: 
+593: 
+594: def main() -> int:
+595:     parser = argparse.ArgumentParser(description="论坛系统日志巡检与告警脚本")
+596:     parser.add_argument("--dry-run", action="store_true",
+597:                         help="仅打印巡检结果，不发送邮件")
+598:     parser.add_argument("--json", action="store_true",
+599:                         help="以 JSON 格式输出")
+600:     parser.add_argument("--verbose", action="store_true",
+601:                         help="输出调试信息")
+602:     parser.add_argument("--config", type=str, default=None,
+603:                         help="指定配置文件 (JSON 格式)，覆盖内置配置")
+604:     args = parser.parse_args()
+605: 
+606:     if args.verbose:
+607:         CONFIG["verbose"] = True
+608:         LOG.setLevel(logging.DEBUG)
+609: 
+610:     if args.config:
+611:         try:
+612:             with open(args.config, "r", encoding="utf-8") as f:
+613:                 overrides = json.loads(f.read())
+614:             CONFIG.update(overrides)
+615:             LOG.info("已加载配置文件: %s", args.config)
+616:         except Exception as exc:
+617:             LOG.error("加载配置文件失败: %s", exc)
+618:             return 2
+619: 
+620:     LOG.info("=== 论坛系统巡检开始 ===")
+621:     LOG.info("参数: dry_run=%s json=%s verbose=%s",
+622:              args.dry_run, args.json, args.verbose)
+623: 
+624:     start = time.time()
+625:     results = run_checks()
+626:     elapsed = round(time.time() - start, 2)
+627: 
+628:     state = AlertState(CONFIG["state_dir"])
+629:     consecutive: Dict[str, int] = {}
+630:     alert_list: List[CheckResult] = []
+631: 
+632:     for r in results:
+633:         if r.alert:
+634:             cnt = state.increment(r.name)
+635:             consecutive[r.name] = cnt
+636:             if cnt >= CONFIG["consecutive_failures_threshold"]:
+637:                 alert_list.append(r)
+638:         else:
+639:             state.reset(r.name)
+640: 
+641:     critical = bool(alert_list)
+642:     LOG.info("巡检耗时 %.2fs，异常项 %d / %d", elapsed, len(alert_list), len(results))
+643: 
+644:     if args.json:
+645:         payload = {
+646:             "timestamp": _dt.datetime.now().isoformat(),
+647:             "duration_seconds": elapsed,
+648:             "overall_status": "critical" if critical else "ok",
+649:             "checks": [
+650:                 {
+651:                     "name": r.name,
+652:                     "ok": r.ok,
+653:                     "alert": r.alert,
+654:                     "detail": r.detail,
+655:                     "consecutive_failures": consecutive.get(r.name, 0),
+656:                 }
+657:                 for r in results
+658:             ],
+659:         }
+660:         print(json.dumps(payload, ensure_ascii=False, indent=2))
+661:         return 1 if critical else 0
+662: 
+663:     # 文本输出
+664:     html, text = render_report(results, consecutive)
+665:     print(text)
+666: 
+667:     # 告警邮件
+668:     if critical and not args.dry_run:
+669:         subject = (
+670:             f"[论坛告警][{'CRITICAL' if critical else 'WARNING'}] "
+671:             f"{os.uname().nodename} - 巡检异常 {len(alert_list)} 项 "
+672:             f"({time.strftime('%Y-%m-%d %H:%M')})"
+673:         )
+674:         send_alert_email(subject, html, text)
+675:     elif critical:
+676:         LOG.info("dry-run 模式，跳过邮件发送")
+677: 
+678:     return 1 if critical else 0
+679: 
+680: 
+681: if __name__ == "__main__":
+682:     sys.exit(main())
+
+(End of file - total 682 lines)
+</content>

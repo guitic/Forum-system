@@ -1,0 +1,396 @@
+<path>D:\桌面\deep\Forum system\frontend\js\post.js</path>
+<type>file</type>
+<content>
+440:       actions.appendChild(delBtn);
+441:     }
+442:     body.appendChild(actions);
+443: 
+444:     // 子回复（递归）
+445:     var children = node.children;
+446:     if (children && children.length) {
+447:       var childrenEl = API.el("div", { class: "reply-children" });
+448:       children.forEach(function (child) {
+449:         childrenEl.appendChild(renderReplyNode(child, depth + 1, null));
+450:       });
+451:       body.appendChild(childrenEl);
+452:     }
+453: 
+454:     card.appendChild(body);
+455:     return card;
+456:   }
+457: 
+458:   /* ------------------------------------------------------------------------
+459:    * 内联回复表单（V3：回复某条回复）
+460:    * ---------------------------------------------------------------------- */
+461:   /**
+462:    * 打开内联回复表单
+463:    * 同一时间只存在一个内联表单；插入到目标回复所在子树末尾并自动聚焦。
+464:    */
+465:   function openInlineReply(node) {
+466:     closeInlineReply();
+467:     var card = document.getElementById("reply-" + node.id);
+468:     if (!card) return;
+469:     var body = card.querySelector(".reply-body");
+470:     if (!body) return;
+471: 
+472:     var form = buildInlineForm(node);
+473:     body.appendChild(form);
+474:     var ta = form.querySelector("textarea");
+475:     if (ta) {
+476:       ta.focus();
+477:       try {
+478:         var pos = ta.value.length;
+479:         ta.setSelectionRange(pos, pos);
+480:       } catch (e) { /* 旧浏览器不支持 */ }
+481:     }
+482:   }
+483: 
+484:   function buildInlineForm(node) {
+485:     var target = node.display_name || node.nickname || node.username || "匿名";
+486:     var parentId = node.id;
+487: 
+488:     var bar = API.el("div", { class: "inline-reply-bar" }, [
+489:       API.el("span", { class: "inline-reply-label", text: "回复" }),
+490:       API.el("span", { class: "inline-reply-target", text: "@" + target }),
+491:     ]);
+492:     var closeBtn = API.el("button", {
+493:       class: "inline-reply-close",
+494:       attrs: { type: "button", "aria-label": "取消回复" },
+495:     }, ["×"]);
+496:     closeBtn.addEventListener("click", closeInlineReply);
+497:     bar.appendChild(closeBtn);
+498: 
+499:     var ta = API.el("textarea", {
+500:       class: "form-control md-editor inline-reply-textarea",
+501:       attrs: {
+502:         maxlength: "5000",
+503:         rows: "3",
+504:         placeholder: "回复 @" + target + "，支持 Markdown 语法…",
+505:       },
+506:     });
+507:     // 预填 @引用，便于被回复人感知上下文
+508:     ta.value = "@" + target + " ";
+509: 
+510:     var btn = API.el("button", {
+511:       class: "btn btn-primary btn-sm inline-reply-submit",
+512:       attrs: { type: "button" },
+513:     }, ["发布回复"]);
+514:     var foot = API.el("div", { class: "inline-reply-foot" }, [
+515:       API.el("span", {
+516:         class: "inline-reply-hint",
+517:         text: "<kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速提交",
+518:       }),
+519:       btn,
+520:     ]);
+521: 
+522:     btn.addEventListener("click", function () {
+523:       submitInlineReply(parentId, ta, btn);
+524:     });
+525:     ta.addEventListener("keydown", function (e) {
+526:       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+527:         e.preventDefault();
+528:         submitInlineReply(parentId, ta, btn);
+529:       }
+530:     });
+531: 
+532:     return API.el("div", {
+533:       class: "inline-reply-form",
+534:       attrs: { "data-parent": String(parentId) },
+535:     }, [bar, ta, foot]);
+536:   }
+537: 
+538:   function closeInlineReply() {
+539:     var existed = document.querySelector(".inline-reply-form");
+540:     if (existed && existed.parentNode) existed.parentNode.removeChild(existed);
+541:   }
+542: 
+543:   async function submitInlineReply(parentId, ta, btn) {
+544:     if (!currentPost) return;
+545:     if (!API.isLoggedIn()) { goLogin(); return; }
+546:     var content = (ta.value || "").trim();
+547:     if (!content) {
+548:       if (ta) ta.focus();
+549:       return;
+550:     }
+551: 
+552:     if (btn) {
+553:       btn.disabled = true;
+554:       btn.textContent = "提交中…";
+555:     }
+556:     try {
+557:       await API.createReply(currentPost.id, content, parentId);
+558:       showToast("回复发布成功！", "success");
+559:       loadPost(); // 整棵树刷新，内联表单随之移除
+560:     } catch (err) {
+561:       showToast(err.message || "回复失败", "error");
+562:       if (btn) {
+563:         btn.disabled = false;
+564:         btn.textContent = "发布回复";
+565:       }
+566:     }
+567:   }
+568: 
+569:   /* ------------------------------------------------------------------------
+570:    * 回复表单（一级回复，底部固定）
+571:    * ---------------------------------------------------------------------- */
+572:   function renderReplyForm() {
+573:     var form = dom.replyForm;
+574:     var prompt = dom.replyLoginPrompt;
+575:     if (!form && !prompt) return;
+576: 
+577:     if (!API.isLoggedIn()) {
+578:       if (form) form.classList.add("hidden");
+579:       if (prompt) {
+580:         prompt.classList.remove("hidden");
+581:         prompt.innerHTML = "";
+582:         prompt.appendChild(API.el("span", { text: "登录后可参与讨论" }));
+583:         prompt.appendChild(API.el("a", {
+584:           class: "btn btn-primary btn-sm",
+585:           attrs: { href: "auth.html?redirect=" + encodeURIComponent(window.location.href) },
+586:           text: "去登录",
+587:         }));
+588:       }
+589:       return;
+590:     }
+591: 
+592:     if (prompt) prompt.classList.add("hidden");
+593:     if (form) form.classList.remove("hidden");
+594:   }
+595: 
+596:   async function submitReply() {
+597:     if (!currentPost) return;
+598:     if (!API.isLoggedIn()) {
+599:       goLogin();
+600:       return;
+601:     }
+602:     var content = (dom.replyContent.value || "").trim();
+603:     if (!content) {
+604:       dom.replyGroup.classList.add("has-error");
+605:       return;
+606:     }
+607:     dom.replyGroup.classList.remove("has-error");
+608: 
+609:     var btn = dom.replySubmitBtn;
+610:     btn.disabled = true;
+611:     btn.textContent = "提交中…";
+612:     try {
+613:       await API.createReply(currentPost.id, content); // 不传 parentId = 一级回复
+614:       dom.replyContent.value = "";
+615:       showToast("回复发布成功！", "success");
+616:       loadPost();
+617:     } catch (err) {
+618:       showToast(err.message || "回复失败", "error");
+619:     } finally {
+620:       btn.disabled = false;
+621:       btn.textContent = "发布回复";
+622:     }
+623:   }
+624: 
+625:   /* ------------------------------------------------------------------------
+626:    * 删除确认（通用弹窗：帖子 / 回复）
+627:    * ---------------------------------------------------------------------- */
+628:   function confirmAction(message, btnLabel, onConfirm) {
+629:     pendingConfirm = typeof onConfirm === "function" ? onConfirm : null;
+630:     if (!dom.confirmBackdrop) return;
+631:     dom.confirmMessage.textContent = message;
+632:     dom.confirmDeleteBtn.textContent = btnLabel || "确认";
+633:     dom.confirmDeleteBtn.disabled = false;
+634:     dom.confirmBackdrop.classList.remove("hidden");
+635:   }
+636: 
+637:   function closeConfirm() {
+638:     pendingConfirm = null;
+639:     if (dom.confirmBackdrop) dom.confirmBackdrop.classList.add("hidden");
+640:     if (dom.confirmDeleteBtn) {
+641:       dom.confirmDeleteBtn.disabled = false;
+642:       dom.confirmDeleteBtn.textContent = "确认";
+643:     }
+644:   }
+645: 
+646:   async function doConfirm() {
+647:     var fn = pendingConfirm;
+648:     pendingConfirm = null;
+649:     closeConfirm();
+650:     if (!fn) return;
+651:     try {
+652:       await fn();
+653:     } catch (e) {
+654:       console.error("[post.js] 确认操作失败:", e);
+655:     }
+656:   }
+657: 
+658:   function confirmDeletePost() {
+659:     if (!currentPost) return;
+660:     confirmAction(
+661:       "确定要删除帖子「" + (currentPost.title || "") + "」吗？其下所有回复将一并删除，该操作不可恢复。",
+662:       "删除帖子",
+663:       doDeletePost
+664:     );
+665:   }
+666: 
+667:   async function doDeletePost() {
+668:     if (!currentPost) return;
+669:     try {
+670:       await API.deletePost(currentPost.id);
+671:       showToast("帖子已删除", "success");
+672:       setTimeout(function () {
+673:         window.location.href = "index.html";
+674:       }, 500);
+675:     } catch (err) {
+676:       showToast(err.message || "删除失败", "error");
+677:     }
+678:   }
+679: 
+680:   function confirmDeleteReply(reply) {
+681:     var msg = "确定要删除这条回复吗？";
+682:     var sub = reply.reply_count || 0;
+683:     if (sub > 0) {
+684:       msg += "该回复下还有 " + sub + " 条子回复，将一并删除。";
+685:     }
+686:     msg += " 该操作不可恢复。";
+687:     confirmAction(msg, "删除回复", function () {
+688:       return doDeleteReply(reply.id);
+689:     });
+690:   }
+691: 
+692:   async function doDeleteReply(replyId) {
+693:     try {
+694:       var data = await API.deleteReply(replyId);
+695:       var n = (data && data.deleted_count) || 1;
+696:       showToast("已删除 " + n + " 条回复", "success");
+697:       loadPost();
+698:     } catch (err) {
+699:       showToast(err.message || "删除失败", "error");
+700:     }
+701:   }
+702: 
+703:   /* ------------------------------------------------------------------------
+704:    * 数据加载
+705:    * ---------------------------------------------------------------------- */
+706:   async function loadPost() {
+707:     var id = getPostId();
+708:     if (!id) {
+709:       renderNotFound("缺少帖子 ID 参数");
+710:       return;
+711:     }
+712: 
+713:     dom.postDetailWrapper.classList.add("hidden");
+714:     dom.postLoading.classList.remove("hidden");
+715: 
+716:     try {
+717:       var data = await API.getPost(id);
+718:       var post = data.post || data;
+719:       var replies = data.replies || [];
+720: 
+721:       replyCount = data.reply_count !== undefined
+722:         ? data.reply_count
+723:         : replies.length;
+724: 
+725:       var tree = data.reply_tree || buildTreeFromFlat(replies);
+726: 
+727:       dom.postLoading.classList.add("hidden");
+728:       dom.postDetailWrapper.classList.remove("hidden");
+729:       renderPost(post);
+730:       renderReplies(tree);
+731:     } catch (err) {
+732:       dom.postLoading.classList.add("hidden");
+733:       if (err.status === 404) {
+734:         renderNotFound("帖子不存在或已被删除");
+735:       } else if (err.network) {
+736:         renderNotFound("无法连接到后端服务，请确认 API 已启动");
+737:       } else {
+738:         renderNotFound(err.message || "加载帖子失败");
+739:       }
+740:     }
+741:   }
+742: 
+743:   /**
+744:    * 兼容旧后端：从扁平 replies 列表按 parent_id 组装为树。
+745:    * 新后端会直接返回 reply_tree，此函数仅在缺失时兜底。
+746:    */
+747:   function buildTreeFromFlat(replies) {
+748:     var byId = {};
+749:     replies.forEach(function (r) { byId[r.id] = r; });
+750:     var roots = [];
+751:     replies.forEach(function (r) {
+752:       r.children = r.children || [];
+753:       var parent = r.parent_id ? byId[r.parent_id] : null;
+754:       if (parent && parent.id !== r.id) {
+755:         parent.children.push(r);
+756:       } else {
+757:         roots.push(r);
+758:       }
+759:     });
+760:     return roots;
+761:   }
+762: 
+763:   function renderNotFound(msg) {
+764:     dom.postLoading.classList.add("hidden");
+765:     dom.postDetailWrapper.classList.add("hidden");
+766:     var empty = document.getElementById("post-not-found");
+767:     if (!empty) return;
+768:     empty.classList.remove("hidden");
+769:     empty.innerHTML = "";
+770:     empty.appendChild(API.el("div", { class: "icon", text: "🚫" }));
+771:     empty.appendChild(API.el("div", { class: "text", text: msg }));
+772:     empty.appendChild(API.el("a", {
+773:       class: "btn btn-primary",
+774:       attrs: { href: "index.html" },
+775:       text: "返回首页",
+776:     }));
+777:   }
+778: 
+779:   /* ------------------------------------------------------------------------
+780:    * Toast
+781:    * ---------------------------------------------------------------------- */
+782:   var toastTimer = null;
+783:   function showToast(msg, type) {
+784:     var container = dom.toastContainer;
+785:     if (!container) return;
+786:     container.innerHTML = "";
+787:     var t = API.el("div", { class: "toast " + (type || "info"), text: msg });
+788:     container.appendChild(t);
+789:     if (toastTimer) clearTimeout(toastTimer);
+790:     toastTimer = setTimeout(function () {
+791:       if (t.parentNode) t.parentNode.removeChild(t);
+792:     }, 3000);
+793:   }
+794: 
+795:   /* ------------------------------------------------------------------------
+796:    * 初始化
+797:    * ---------------------------------------------------------------------- */
+798:   function init() {
+799:     dom.navActions = document.getElementById("nav-actions");
+800:     dom.postLoading = document.getElementById("post-loading");
+801:     dom.postDetailWrapper = document.getElementById("post-detail-wrapper");
+802:     dom.postTitle = document.getElementById("post-title");
+803:     dom.postMeta = document.getElementById("post-meta");
+804:     dom.postActions = document.getElementById("post-actions");
+805:     dom.postContent = document.getElementById("post-content");
+806:     dom.replyList = document.getElementById("reply-list");
+807:     dom.replyCount = document.getElementById("reply-count");
+808:     dom.replyForm = document.getElementById("reply-form");
+809:     dom.replyLoginPrompt = document.getElementById("reply-login-prompt");
+810:     dom.replyContent = document.getElementById("reply-content");
+811:     dom.replyGroup = document.getElementById("reply-group");
+812:     dom.replySubmitBtn = document.getElementById("reply-submit-btn");
+813:     dom.confirmBackdrop = document.getElementById("confirm-backdrop");
+814:     dom.confirmMessage = document.getElementById("confirm-message");
+815:     dom.confirmDeleteBtn = document.getElementById("confirm-delete-btn");
+816:     dom.confirmCancelBtn = document.getElementById("confirm-cancel-btn");
+817:     dom.toastContainer = document.getElementById("toast-container");
+818: 
+819:     setupMarked();
+820: 
+821:     renderNav();
+822:     renderReplyForm();
+823: 
+824:     // 回复表单事件（一级回复）
+825:     if (dom.replyContent) {
+826:       dom.replyContent.addEventListener("keydown", function (e) {
+827:         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+828:           e.preventDefault();
+829:           submitReply();
+
+(Showing lines 440-829 of 872. Use offset=830 to continue.)
+</content>

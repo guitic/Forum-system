@@ -1,0 +1,257 @@
+<path>D:\桌面\deep\Forum system\backend\routes\posts.py</path>
+<type>file</type>
+<content>
+260: # ---------- 路由 ----------
+261: 
+262: @posts_bp.get("")
+263: @posts_bp.get("/")
+264: def list_posts():
+265:     """
+266:     GET /api/posts
+267: 
+268:     主贴列表，按 created_at 倒序。
+269:     查询参数：page（默认1）、limit（默认20，最大100）
+270:     """
+271:     page, limit = _get_pagination()
+272:     offset = (page - 1) * limit
+273: 
+274:     query = (
+275:         db.session.query(
+276:             Post.id,
+277:             Post.user_id,
+278:             Post.title,
+279:             Post.content,
+280:             Post.created_at,
+281:             User.username,
+282:             User.nickname,
+283:             User.avatar_url,
+284:             User.role,
+285:         )
+286:         .join(User, Post.user_id == User.id)
+287:         .order_by(Post.created_at.desc())
+288:     )
+289: 
+290:     total = query.count()
+291:     rows = query.offset(offset).limit(limit).all()
+292: 
+293:     posts = [
+294:         {
+295:             "id": r.id,
+296:             "user_id": r.user_id,
+297:             "username": r.username,
+298:             "nickname": r.nickname,
+299:             "display_name": r.nickname or r.username,
+300:             "avatar_url": r.avatar_url,
+301:             "role": r.role,
+302:             "title": r.title,
+303:             "content": r.content,
+304:             "created_at": _parse_dt(r.created_at),
+305:         }
+306:         for r in rows
+307:     ]
+308: 
+309:     pages = int(math.ceil(total / limit)) if limit else 0
+310:     return (
+311:         jsonify(
+312:             {
+313:                 "posts": posts,
+314:                 "total": total,
+315:                 "page": page,
+316:                 "limit": limit,
+317:                 "pages": pages,
+318:             }
+319:         ),
+320:         200,
+321:     )
+322: 
+323: 
+324: @posts_bp.get("/<int:post_id>")
+325: def get_post(post_id):
+326:     """
+327:     GET /api/posts/{id}
+328: 
+329:     帖子详情，含回复数据。
+330:     V3 新增：
+331:     - replies:    扁平列表（按时间正序，含层级字段，向后兼容）
+332:     - reply_tree: 嵌套树（展示用，最多 MAX_REPLY_DEPTH+1 层）
+333:     - reply_count: 回复总数
+334:     """
+335:     post = Post.query.get(post_id)
+336:     if not post:
+337:         return jsonify({"error": "帖子不存在"}), 404
+338: 
+339:     # 按 created_at 升序返回回复（父回复必先于子回复出现）
+340:     replies = (
+341:         Reply.query.filter_by(post_id=post.id)
+342:         .order_by(Reply.created_at.asc(), Reply.id.asc())
+343:         .all()
+344:     )
+345: 
+346:     tree, flat = _build_reply_tree(
+347:         replies, post.user_id, config.MAX_REPLY_DEPTH
+348:     )
+349: 
+350:     return (
+351:         jsonify(
+352:             {
+353:                 "id": post.id,
+354:                 "user_id": post.user_id,
+355:                 "username": post.author.username if post.author else None,
+356:                 "nickname": post.author.nickname if post.author else None,
+357:                 "display_name": post.author.display_name if post.author else None,
+358:                 "avatar_url": post.author.avatar_url if post.author else None,
+359:                 "role": post.author.role if post.author else None,
+360:                 "title": post.title,
+361:                 "content": post.content,
+362:                 "created_at": _parse_dt(post.created_at),
+363:                 "reply_count": len(replies),
+364:                 "reply_tree": tree,
+365:                 "replies": flat,
+366:             }
+367:         ),
+368:         200,
+369:     )
+370: 
+371: 
+372: @posts_bp.post("")
+373: @posts_bp.post("/")
+374: @require_auth
+375: def create_post(current_user):
+376:     """
+377:     POST /api/posts
+378: 
+379:     发布新贴。
+380:     Header: Authorization: Bearer <token>
+381:     Body: {"title": "...", "content": "..."}
+382:     """
+383:     data = request.get_json(silent=True) or {}
+384:     title = (data.get("title") or "").strip()
+385:     content = data.get("content") or ""
+386: 
+387:     if not title:
+388:         return jsonify({"error": "标题不能为空"}), 400
+389:     if len(title) > 200:
+390:         return jsonify({"error": "标题长度不能超过 200 个字符"}), 400
+391:     if not content.strip():
+392:         return jsonify({"error": "内容不能为空"}), 400
+393: 
+394:     post = Post(user_id=current_user.id, title=title, content=content)
+395:     try:
+396:         db.session.add(post)
+397:         db.session.commit()
+398:     except Exception:
+399:         db.session.rollback()
+400:         return jsonify({"error": "发布帖子失败"}), 500
+401: 
+402:     return (
+403:         jsonify(
+404:             {
+405:                 "id": post.id,
+406:                 "user_id": post.user_id,
+407:                 "username": current_user.username,
+408:                 "nickname": current_user.nickname,
+409:                 "display_name": current_user.display_name,
+410:                 "avatar_url": current_user.avatar_url,
+411:                 "role": current_user.role,
+412:                 "title": post.title,
+413:                 "content": post.content,
+414:                 "created_at": _parse_dt(post.created_at),
+415:             }
+416:         ),
+417:         201,
+418:     )
+419: 
+420: 
+421: @posts_bp.post("/<int:post_id>/replies")
+422: @require_auth
+423: def create_reply(post_id, current_user):
+424:     """
+425:     POST /api/posts/{id}/replies
+426: 
+427:     发布回复。
+428:     Header: Authorization: Bearer <token>
+429:     Body: {"content": "...", "parent_id": 123}
+430:         - content:  必填，回复内容
+431:         - parent_id: 可选；省略或 null 表示一级回复；
+432:                      非空时父回复必须存在且属于同一帖子
+433:     """
+434:     post = Post.query.get(post_id)
+435:     if not post:
+436:         return jsonify({"error": "帖子不存在"}), 404
+437: 
+438:     data = request.get_json(silent=True) or {}
+439:     content = (data.get("content") or "").strip()
+440:     if not content:
+441:         return jsonify({"error": "回复内容不能为空"}), 400
+442:     if len(content) > config.MAX_REPLY_LENGTH:
+443:         return jsonify({
+444:             "error": f"回复长度不能超过 {config.MAX_REPLY_LENGTH} 个字符"
+445:         }), 400
+446: 
+447:     # 解析并校验父回复
+448:     parent = None
+449:     parent_id_raw = data.get("parent_id")
+450:     if parent_id_raw not in (None, "", 0):
+451:         try:
+452:             parent_id = int(parent_id_raw)
+453:         except (TypeError, ValueError):
+454:             return jsonify({"error": "parent_id 无效"}), 400
+455:         parent = Reply.query.get(parent_id)
+456:         if not parent:
+457:             return jsonify({"error": "被回复的回复不存在"}), 404
+458:         if parent.post_id != post.id:
+459:             return jsonify({"error": "被回复的回复不属于该帖子"}), 403
+460: 
+461:     # root_id：一级回复为 None；子回复继承父回复的话题根
+462:     reply = Reply(
+463:         post_id=post.id,
+464:         user_id=current_user.id,
+465:         content=content,
+466:         parent_id=parent.id if parent is not None else None,
+467:         root_id=(parent.root_id or parent.id) if parent is not None else None,
+468:     )
+469:     try:
+470:         db.session.add(reply)
+471:         db.session.commit()
+472:     except Exception:
+473:         db.session.rollback()
+474:         return jsonify({"error": "发布回复失败"}), 500
+475: 
+476:     # 提交后重取，确保 created_at 等默认值已落库
+477:     db.session.expire(reply)
+478:     return jsonify(
+479:         _reply_node(reply, config.MAX_REPLY_DEPTH, post.user_id)
+480:     ), 201
+481: 
+482: 
+483: @posts_bp.delete("/<int:post_id>")
+484: @require_auth
+485: def delete_post(post_id, current_user):
+486:     """
+487:     DELETE /api/posts/{id}
+488: 
+489:     删除主贴及其全部回复。
+490:     只有发帖人或管理员 (role='admin') 可以删除。
+491:     """
+492:     post = Post.query.get(post_id)
+493:     if not post:
+494:         return jsonify({"error": "帖子不存在"}), 404
+495: 
+496:     is_owner = post.user_id == current_user.id
+497:     is_admin = current_user.role == "admin"
+498:     if not (is_owner or is_admin):
+499:         return jsonify({"error": "无权删除该帖子"}), 403
+500: 
+501:     try:
+502:         # 级联删除所有关联回复
+503:         Reply.query.filter_by(post_id=post.id).delete()
+504:         db.session.delete(post)
+505:         db.session.commit()
+506:     except Exception:
+507:         db.session.rollback()
+508:         return jsonify({"error": "删除失败"}), 500
+509: 
+510:     return jsonify({"message": "删除成功"}), 200
+
+(End of file - total 510 lines)
+</content>

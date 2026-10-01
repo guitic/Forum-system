@@ -1,0 +1,271 @@
+<path>D:\桌面\deep\Forum system\frontend\js\api.js</path>
+<type>file</type>
+<content>
+110:     var authUrl = "auth.html?redirect=" + redirect;
+111:     if (window.location.pathname !== "auth.html") {
+112:       window.location.replace(authUrl);
+113:     }
+114:   }
+115: 
+116:   /* ------------------------------------------------------------------------
+117:    * 核心请求方法
+118:    * ---------------------------------------------------------------------- */
+119: 
+120:   /**
+121:    * 通用 fetch 封装
+122:    * @param {string} path 例如 '/api/posts'
+123:    * @param {Object} [opts]
+124:    * @param {'GET'|'POST'|'PUT'|'DELETE'|'PATCH'} [opts.method='GET']
+125:    * @param {Object} [opts.body]   POST/PUT 请求体（对象，将被 JSON 序列化）
+126:    * @param {Object} [opts.params] URL query 参数
+127:    * @param {boolean} [opts.auth=true] 是否携带 Bearer Token
+128:    * @param {Object} [opts.headers] 额外 headers
+129:    * @param {boolean} [opts.redirectOn401=true] 401 时是否自动跳转
+130:    * @returns {Promise<any>} 解析后的响应 JSON（或原始文本）
+131:    * @throws {Error} 网络错误 / 非 2xx 响应（错误对象带 .status / .data）
+132:    */
+133:   async function request(path, opts) {
+134:     opts = opts || {};
+135:     var method = (opts.method || "GET").toUpperCase();
+136:     var needsAuth = opts.auth !== false;
+137:     var redirectOn401 = opts.redirectOn401 !== false;
+138:     var token = API.getToken();
+139: 
+140:     var headers = Object.assign(
+141:       { Accept: "application/json" },
+142:       opts.headers || {}
+143:     );
+144: 
+145:     // 携带 Bearer Token
+146:     if (needsAuth && token) {
+147:       headers["Authorization"] = "Bearer " + token;
+148:     }
+149: 
+150:     // JSON body
+151:     var body = undefined;
+152:     if (opts.body !== undefined && opts.body !== null) {
+153:       headers["Content-Type"] = "application/json";
+154:       body = JSON.stringify(opts.body);
+155:     }
+156: 
+157:     var url = buildUrl(path, opts.params);
+158: 
+159:     var response;
+160:     var controller = new AbortController();
+161:     var timeout = setTimeout(function () {
+162:       controller.abort();
+163:     }, 15000); // 15 秒超时
+164: 
+165:     try {
+166:       response = await fetch(url, {
+167:         method: method,
+168:         headers: headers,
+169:         body: body,
+170:         credentials: "same-origin",
+171:         signal: controller.signal,
+172:       });
+173:     } catch (netErr) {
+174:       clearTimeout(timeout);
+175:       if (netErr.name === "AbortError") {
+176:         throw new Error("请求超时，请检查网络连接或后端服务是否启动");
+177:       }
+178:       var e = new Error("网络请求失败，请检查网络连接或后端服务是否启动");
+179:       e.cause = netErr;
+180:       e.network = true;
+181:       throw e;
+182:     }
+183:     clearTimeout(timeout);
+184: 
+185:     var data = await parseBody(response);
+186: 
+187:     if (response.status === 401) {
+188:       if (redirectOn401) {
+189:         handleUnauthorized();
+190:         // 抛出一个标记错误，阻止后续逻辑继续执行
+191:         var ue = new Error("登录已过期，请重新登录");
+192:         ue.status = 401;
+193:         ue.data = data;
+194:         throw ue;
+195:       }
+196:     }
+197: 
+198:     if (!response.ok) {
+199:       var msg = extractError(
+200:         data,
+201:         "请求失败（HTTP " + response.status + "）"
+202:       );
+203:       var err = new Error(msg);
+204:       err.status = response.status;
+205:       err.data = data;
+206:       throw err;
+207:     }
+208: 
+209:     return data;
+210:   }
+211: 
+212:   API.request = request;
+213: 
+214:   /* ------------------------------------------------------------------------
+215:    * 鉴权接口
+216:    * ---------------------------------------------------------------------- */
+217: 
+218:   /**
+219:    * 登录
+220:    * @param {string} username
+221:    * @param {string} password
+222:    * @returns {Promise<{token:string}>}
+223:    */
+224:   API.login = function (username, password) {
+225:     return request("/api/auth/login", {
+226:       method: "POST",
+227:       body: { username: username, password: [REDACTED:credential] },
+228:       auth: false, // 登录接口无需 Token
+229:       redirectOn401: false, // 登录接口 401 表示凭据错误，不应跳转
+230:     });
+231:   };
+232: 
+233:   /**
+234:    * 注册
+235:    * @param {string} username
+236:    * @param {string} password
+237:    */
+238:   API.register = function (username, password) {
+239:     return request("/api/auth/register", {
+240:       method: "POST",
+241:       body: { username: username, password: [REDACTED:credential] },
+242:       auth: false,
+243:       redirectOn401: false,
+244:     });
+245:   };
+246: 
+247:   /* ------------------------------------------------------------------------
+248:    * 帖子接口
+249:    * ---------------------------------------------------------------------- */
+250: 
+251:   /**
+252:    * 获取主贴列表（分页）
+253:    * @param {number} [page=1]
+254:    * @param {number} [limit=20]
+255:    * @returns {Promise<{posts:Array, total:number, page:number, limit:number, pages:number}>}
+256:    */
+257:   API.getPosts = function (page, limit) {
+258:     return request("/api/posts", {
+259:       method: "GET",
+260:       params: { page: page || 1, limit: limit || 20 },
+261:       auth: false, // 列表对游客开放
+262:     });
+263:   };
+264: 
+265:   /**
+266:    * 获取帖子详情
+267:    * @param {number|string} id
+268:    * @returns {Promise<{post:Object, replies:Array, reply_tree:Array, reply_count:number}>}
+269:    *        V3 起额外返回 reply_tree（嵌套树）与 reply_count
+270:    */
+271:   API.getPost = function (id) {
+272:     return request("/api/posts/" + encodeURIComponent(id), {
+273:       method: "GET",
+274:       auth: false,
+275:     });
+276:   };
+277: 
+278:   /**
+279:    * 发布新贴
+280:    * @param {string} title
+281:    * @param {string} content
+282:    */
+283:   API.createPost = function (title, content) {
+284:     return request("/api/posts", {
+285:       method: "POST",
+286:       body: { title: title, content: content },
+287:       auth: true,
+288:     });
+289:   };
+290: 
+291:   /**
+292:    * 发布回复（V3：支持楼中楼）
+293:    * @param {number|string} postId
+294:    * @param {string} content
+295:    * @param {number|string} [parentId] 可选；传入则作为对该回复的子回复，
+296:    *        省略或传 null 表示一级回复
+297:    * @returns {Promise<Object>} 新回复节点（含 depth/root_id/parent_id 等层级字段）
+298:    */
+299:   API.createReply = function (postId, content, parentId) {
+300:     var body = { content: content };
+301:     if (parentId !== undefined && parentId !== null && parentId !== "") {
+302:       body.parent_id = parentId;
+303:     }
+304:     return request("/api/posts/" + encodeURIComponent(postId) + "/replies", {
+305:       method: "POST",
+306:       body: body,
+307:       auth: true,
+308:     });
+309:   };
+310: 
+311:   /**
+312:    * 删除回复（V3 新增）
+313:    * 仅回复作者或管理员可调用；服务端会级联删除其所有子孙回复。
+314:    * @param {number|string} replyId
+315:    * @returns {Promise<{message:string, deleted_count:number}>}
+316:    */
+317:   API.deleteReply = function (replyId) {
+318:     return request("/api/replies/" + encodeURIComponent(replyId), {
+319:       method: "DELETE",
+320:       auth: true,
+321:     });
+322:   };
+323: 
+324:   /**
+325:    * 删除帖子
+326:    * @param {number|string} id
+327:    */
+328:   API.deletePost = function (id) {
+329:     return request("/api/posts/" + encodeURIComponent(id), {
+330:       method: "DELETE",
+331:       auth: true,
+332:     });
+333:   };
+334: 
+335:   /* ------------------------------------------------------------------------
+336:    * 时间格式化（友好格式）
+337:    * @param {string|number|Date} input
+338:    * @returns {string} 例如 "3天前" / "刚刚" / "2024-01-01 12:00"
+339:    */
+340:   /**
+341:    * 将任意输入转为 Date 对象（兼容字符串、时间戳、Date）
+342:    */
+343:   API._toDate = function (input) {
+344:     if (!input) return null;
+345:     if (input instanceof Date) return input;
+346:     if (typeof input === "number") return new Date(input);
+347:     var s = String(input).replace(" ", "T");
+348:     var date = new Date(s);
+349:     if (isNaN(date.getTime())) date = new Date(String(input));
+350:     return isNaN(date.getTime()) ? null : date;
+351:   };
+352: 
+353:   API.formatTime = function (input) {
+354:     if (!input) return "";
+355:     var date = API._toDate(input);
+356:     if (!date) return String(input);
+357: 
+358:     var now = Date.now();
+359:     var diff = Math.floor((now - date.getTime()) / 1000);
+360: 
+361:     if (diff < 0) {
+362:       // 未来时间，直接显示
+363:       return API._formatDateTime(date);
+364:     }
+365: 
+366:     var sec = 60;
+367:     var min = 60;
+368:     var hour = 24;
+369:     var day = 30;
+370: 
+371:     if (diff < 10) return "刚刚";
+372:     if (diff < 60) return diff + "秒前";
+373:     if (diff < 60 * min) return Math.floor(diff / 60) + "分钟前";
+374:     if (diff < 60 * 60 * hour) return Math.floor(diff / (60 * 60)) + "小时前";
+
+(Showing lines 110-374 of 793. Use offset=375 to continue.)
+</content>

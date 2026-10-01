@@ -1,0 +1,143 @@
+# ============================================================================
+# 论坛后端 Python API 服务 systemd 单元文件
+# 部署位置: /etc/systemd/system/forum-api.service
+# 适用: Rocky Linux 8/9 (systemd 239+)
+# 说明:
+#   - 以专用用户 forum 运行，最小权限隔离
+#   - 依赖网络与 MariaDB 就绪后再启动
+#   - 崩溃自动重启，含指数退避与最大重启次数
+#   - 日志统一输出至 journalctl (stdout/stderr)
+#   - 优雅停止 (SIGTERM)，超时强杀 (SIGKILL)
+# ============================================================================
+
+[Unit]
+Description=Forum API Backend (Python Flask on 127.0.0.1:5000)
+Documentation=file:/opt/forum/README.md
+# 网络管理器就绪后再启动；MySQL 可选依赖
+After=network-online.target mariadb.service mysql.service
+Wants=network-online.target
+# 禁止在关机前强杀超过 30 秒
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# ---------------------------- 运行用户 ----------------------------
+# 使用专用非特权用户运行，避免直接 root
+User=forum
+Group=forum
+# 严格模式: 限制系统调用与文件系统权限
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# ---------------------------- 工作目录与可写路径 ----------------------------
+# 代码仓库部署在 /opt/forum/repo，后端代码位于其 backend 子目录
+WorkingDirectory=/opt/forum/repo/backend
+# 仅允许论坛写入运行目录与日志目录
+RuntimeDirectory=forum
+RuntimeDirectoryMode=0750
+# 上传目录(头像/帖子图片)必须可写：ProtectSystem=strict 下全盘只读，
+# 只有 ReadWritePaths 列出的路径可写，故上传目录统一放在 /var/lib/forum 下
+ExecStartPre=/usr/bin/mkdir -p /var/lib/forum/uploads
+ExecStartPre=/usr/bin/chown -R forum:forum /var/lib/forum
+
+# ---------------------------- 环境变量 ----------------------------
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=FLASK_DEBUG=0
+Environment=FLASK_APP=app.py
+Environment=PYTHONHASHSEED=0
+# 后端模块搜索路径。venv 的 site-packages 由 venv 内的 gunicorn 自动加载，
+# 无需硬编码 Python 版本号(避免升级 Python 后失效)
+Environment=PYTHONPATH=/opt/forum/repo/backend
+# 数据库与运行时配置 (敏感信息建议改为 EnvironmentFile 引入)
+EnvironmentFile=-/etc/forum/forum.env
+# 兜底默认值 (EnvironmentFile 存在时会被覆盖)
+# 注意: 变量名必须与 backend/config.py、app.py 保持一致(无 FORUM_ 前缀)
+Environment=DB_HOST=127.0.0.1
+Environment=DB_PORT=3306
+Environment=DB_USER=forum_user
+Environment=DB_PASSWORD=change_me_in_env_file
+Environment=DB_NAME=forum_db
+Environment=SECRET_KEY=change_me_in_env_file
+Environment=JWT_SECRET_KEY=change_me_in_env_file
+Environment=HOST=127.0.0.1
+Environment=PORT=5000
+# 上传目录指向可写路径，与 ReadWritePaths 保持一致
+Environment=UPLOAD_DIR=/var/lib/forum/uploads
+
+# ---------------------------- 启动命令 ----------------------------
+# 使用虚拟环境中的 python，直接调用 Flask CLI
+# 注意: 生产建议用 gunicorn 等 WSGI 服务器
+ExecStart=/opt/forum/venv/bin/gunicorn \
+    --bind 127.0.0.1:5000 \
+    --workers 2 \
+    --threads 4 \
+    --worker-class gthread \
+    --timeout 60 \
+    --graceful-timeout 30 \
+    --keep-alive 65 \
+    --access-logfile - \
+    --error-logfile - \
+    --log-level info \
+    app:app
+
+# 如使用 Flask 内置服务器 (仅开发/低负载场景):
+# ExecStart=/opt/forum/venv/bin/python /opt/forum/repo/backend/app.py
+
+# ---------------------------- 优雅停止 ----------------------------
+ExecStop=/bin/kill -SIGTERM $MAINPID
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# ---------------------------- 自动重启策略 ----------------------------
+Restart=on-failure
+RestartPreventExitStatus=143
+RestartForceExitStatus=SIGTERM SIGKILL
+RestartSec=5
+
+# ---------------------------- 日志输出 (journal) ----------------------------
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=forum-api
+# 日志级别: 只收集 warning 及以上到 error 目标
+LogLevelMax=info
+
+# ---------------------------- 资源限制 ----------------------------
+# CPU: 最多 2 个 CPU 核心
+CPUQuota=200%
+# 内存: 上限 1GB
+MemoryMax=1G
+MemoryHigh=800M
+# 进程数: 防止 fork 炸弹
+TasksMax=512
+IOReadBandwidthMax=/ 50M
+IOWriteBandwidthMax=/ 50M
+IOReadIOPSMax=/ 1000
+IOWriteIOPSMax=/ 1000
+
+# ---------------------------- 安全加固 ----------------------------
+ReadOnlyPaths=/etc /usr /lib /lib64 /opt/forum/repo
+ReadWritePaths=/var/lib/forum /opt/forum/logs
+TemporaryFileSystem=/tmp
+TemporaryFileSystem=/run
+
+[Install]
+WantedBy=multi-user.target

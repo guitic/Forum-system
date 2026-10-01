@@ -1,0 +1,196 @@
+<path>D:\桌面\deep\Forum system\frontend\js\auth.js</path>
+<type>file</type>
+<content>
+100:   }
+101: 
+102:   function validatePassword(v) {
+103:     var s = v || "";
+104:     if (!s) return "请输入密码";
+105:     if (s.length < 8) return "密码长度至少 8 个字符";
+106:     if (s.length > 72) return "密码长度不能超过 72 个字符";
+107:     if (!/[a-zA-Z]/.test(s)) return "密码必须包含至少一个字母";
+108:     if (!/\d/.test(s)) return "密码必须包含至少一个数字";
+109:     if (!/[^\w]/.test(s)) return "密码必须包含至少一个特殊字符（如 . @ # $ 等）";
+110:     return "";
+111:   }
+112: 
+113:   function clearFormErrors() {
+114:     [dom.loginUsernameGroup, dom.loginPasswordGroup,
+115:      dom.regUsernameGroup, dom.regPasswordGroup, dom.regConfirmGroup].forEach(function (g) {
+116:       if (g) g.classList.remove("has-error");
+117:     });
+118:   }
+119: 
+120:   function setGroupError(group, message) {
+121:     if (!group) return;
+122:     group.classList.add("has-error");
+123:     var errEl = group.querySelector(".form-error");
+124:     if (errEl) errEl.textContent = message;
+125:   }
+126: 
+127:   /* ------------------------------------------------------------------------
+128:    * 登录
+129:    * ---------------------------------------------------------------------- */
+130:   async function doLogin() {
+131:     clearFormErrors();
+132:     var username = dom.loginUsername.value.trim();
+133:     var password = dom.loginPassword.value;
+134: 
+135:     var uErr = username ? "" : "请输入用户名";
+136:     var pErr = password ? "" : "请输入密码";
+137:     if (uErr) setGroupError(dom.loginUsernameGroup, uErr);
+138:     if (pErr) setGroupError(dom.loginPasswordGroup, pErr);
+139:     if (uErr || pErr) return;
+140: 
+141:     var btn = dom.loginSubmitBtn;
+142:     btn.disabled = true;
+143:     btn.textContent = "登录中…";
+144:     try {
+145:       var data = await API.login(username, password);
+146:       var token = data.token || (data && data.data && data.data.token);
+147:       if (!token) {
+148:         throw new Error("服务器未返回有效的 Token");
+149:       }
+150:       API.setToken(token);
+151:       // 缓存用户名和用户资料信息
+152:       var uname = data.username || (data && data.data && data.data.username) || username;
+153:       try { localStorage.setItem("username", uname); } catch (e) { /* ignore */ }
+154:       // V2: 缓存昵称和头像
+155:       if (data.nickname) try { localStorage.setItem("nickname", data.nickname); } catch (e) { /* ignore */ }
+156:       else try { localStorage.removeItem("nickname"); } catch (e) { /* ignore */ }
+157:       if (data.avatar_url) try { localStorage.setItem("avatar_url", data.avatar_url); } catch (e) { /* ignore */ }
+158:       else try { localStorage.removeItem("avatar_url"); } catch (e) { /* ignore */ }
+159:       // V3: 缓存角色（用于前端判断是否显示管理员特权操作）
+160:       if (data.role) try { localStorage.setItem("role", data.role); } catch (e) { /* ignore */ }
+161:       else try { localStorage.removeItem("role"); } catch (e) { /* ignore */ }
+162:       showToast("登录成功，正在跳转…", "success");
+163:       setTimeout(function () {
+164:         window.location.href = getRedirect();
+165:       }, 400);
+166:     } catch (err) {
+167:       var msg = err.message || "登录失败";
+168:       // 后端返回的用户名/密码错误友好提示
+169:       if (msg.indexOf("密码") !== -1 || msg.indexOf("不存在") !== -1 || msg.indexOf("invalid") !== -1) {
+170:         msg = "用户名或密码错误";
+171:       }
+172:       showToast(msg, "error");
+173:     } finally {
+174:       btn.disabled = false;
+175:       btn.textContent = "登 录";
+176:     }
+177:   }
+178: 
+179:   /* ------------------------------------------------------------------------
+180:    * 注册
+181:    * ---------------------------------------------------------------------- */
+182:   async function doRegister() {
+183:     clearFormErrors();
+184:     var username = dom.regUsername.value.trim();
+185:     var password = dom.regPassword.value;
+186:     var confirm = dom.regConfirm.value;
+187: 
+188:     var uErr = validateUsername(username);
+189:     var pErr = validatePassword(password);
+190:     var cErr = "";
+191:     if (!confirm) cErr = "请再次输入密码";
+192:     else if (password !== confirm) cErr = "两次输入的密码不一致";
+193: 
+194:     if (uErr) setGroupError(dom.regUsernameGroup, uErr);
+195:     if (pErr) setGroupError(dom.regPasswordGroup, pErr);
+196:     if (cErr) setGroupError(dom.regConfirmGroup, cErr);
+197:     if (uErr || pErr || cErr) return;
+198: 
+199:     var btn = dom.registerSubmitBtn;
+200:     btn.disabled = true;
+201:     btn.textContent = "注册中…";
+202:     try {
+203:       var data = await API.register(username, password);
+204:       // 注册后通常直接返回 token 或需要再登录
+205:       var token = data.token || (data && data.data && data.data.token);
+206:       if (token) {
+207:         API.setToken(token);
+208:         try { localStorage.setItem("username", username); } catch (e) { /* ignore */ }
+209:         try { localStorage.removeItem("nickname"); } catch (e) { /* ignore */ }
+210:         try { localStorage.removeItem("avatar_url"); } catch (e) { /* ignore */ }
+211:         showToast("注册成功，已自动登录", "success");
+212:         setTimeout(function () {
+213:           window.location.href = getRedirect();
+214:         }, 400);
+215:       } else {
+216:         // 注册成功但未自动登录 → 提示并切换到登录
+217:         showToast("注册成功，请登录", "success");
+218:         switchMode("login");
+219:         dom.loginUsername.value = username;
+220:         dom.loginPassword.value = "";
+221:         dom.loginPassword.focus();
+222:       }
+223:     } catch (err) {
+224:       var msg = err.message || "注册失败";
+225:       if (msg.indexOf("已存在") !== -1 || msg.indexOf("exist") !== -1 || msg.indexOf("duplicate") !== -1) {
+226:         msg = "该用户名已被注册";
+227:       }
+228:       showToast(msg, "error");
+229:     } finally {
+230:       btn.disabled = false;
+231:       btn.textContent = "注 册";
+232:     }
+233:   }
+234: 
+235:   /* ------------------------------------------------------------------------
+236:    * 跳转地址
+237:    * ---------------------------------------------------------------------- */
+238:   function getRedirect() {
+239:     var params = new URLSearchParams(window.location.search);
+240:     var r = params.get("redirect");
+241:     if (!r) return defaultRedirect;
+242:     // 仅允许相对路径，避免开放重定向
+243:     try {
+244:       var u = new URL(r, window.location.origin);
+245:       if (u.origin !== window.location.origin) return defaultRedirect;
+246:       if (!/^(index|post|auth)\.html/.test(u.pathname.split("/").pop())) return defaultRedirect;
+247:       return u.pathname + u.search;
+248:     } catch (e) {
+249:       return defaultRedirect;
+250:     }
+251:   }
+252: 
+253:   /* ------------------------------------------------------------------------
+254:    * Toast
+255:    * ---------------------------------------------------------------------- */
+256:   var toastTimer = null;
+257:   function showToast(msg, type) {
+258:     var container = dom.toastContainer;
+259:     if (!container) return;
+260:     container.innerHTML = "";
+261:     var t = API.el("div", { class: "toast " + (type || "info"), text: msg });
+262:     container.appendChild(t);
+263:     if (toastTimer) clearTimeout(toastTimer);
+264:     toastTimer = setTimeout(function () {
+265:       if (t.parentNode) t.parentNode.removeChild(t);
+266:     }, 3200);
+267:   }
+268: 
+269:   /* ------------------------------------------------------------------------
+270:    * 初始化
+271:    * ---------------------------------------------------------------------- */
+272:   function init() {
+273:     dom.navActions = document.getElementById("nav-actions");
+274:     dom.loginPanel = document.getElementById("login-panel");
+275:     dom.registerPanel = document.getElementById("register-panel");
+276:     dom.loginUsername = document.getElementById("login-username");
+277:     dom.loginPassword = document.getElementById("login-password");
+278:     dom.loginUsernameGroup = document.getElementById("login-username-group");
+279:     dom.loginPasswordGroup = document.getElementById("login-password-group");
+280:     dom.loginSubmitBtn = document.getElementById("login-submit-btn");
+281:     dom.regUsername = document.getElementById("register-username");
+282:     dom.regPassword = document.getElementById("register-password");
+283:     dom.regConfirm = document.getElementById("register-confirm");
+284:     dom.regUsernameGroup = document.getElementById("register-username-group");
+285:     dom.regPasswordGroup = document.getElementById("register-password-group");
+286:     dom.regConfirmGroup = document.getElementById("register-confirm-group");
+287:     dom.registerSubmitBtn = document.getElementById("register-submit-btn");
+288:     dom.toastContainer = document.getElementById("toast-container");
+289: 
+
+(Showing lines 100-289 of 359. Use offset=290 to continue.)
+</content>

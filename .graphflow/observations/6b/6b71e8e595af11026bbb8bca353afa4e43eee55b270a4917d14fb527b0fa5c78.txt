@@ -1,0 +1,671 @@
+<path>D:\桌面\deep\Forum system\deploy\README.md</path>
+<type>file</type>
+<content>
+1: # 论坛系统部署与运维指南
+2: 
+3: > 适用于 Rocky Linux 8/9 + MariaDB + Python 3.9+ + Nginx 1.20+
+4: > 部署目录: `/opt/forum/`
+5: 
+6: ---
+7: 
+8: ## 目录
+9: 
+10: - [1. 部署拓扑](#1-部署拓扑)
+11: - [2. 环境准备](#2-环境准备)
+12: - [3. 数据库初始化](#3-数据库初始化)
+13: - [4. 代码部署](#4-代码部署)
+14: - [5. 配置修改说明](#5-配置修改说明)
+15: - [6. 服务启动](#6-服务启动)
+16: - [7. 监控配置](#7-监控配置)
+17: - [8. 定时任务](#8-定时任务)
+18: - [9. 常用运维命令](#9-常用运维命令)
+19: - [10. 故障排查](#10-故障排查)
+20: - [11. 安全加固建议](#11-安全加固建议)
+21: 
+22: ---
+23: 
+24: ## 1. 部署拓扑
+25: 
+26: ```
+27:                     ┌─────────────────────────────────────────┐
+28:                     │             Rocky Linux Server          │
+29:                     │                                         │
+30:   Internet ──────►  │  ┌──────────┐   proxy_pass  ┌─────────┐ │
+31:   (HTTPS 443)      │  │  Nginx   │ ──────────►   │ Gunicorn│ │
+32:                     │  │ :443/:80 │               │ :5000   │ │
+33:                     │  └────┬─────┘               └────┬────┘ │
+34:                     │       │                          │       │
+35:                     │  static assets              MariaDB      │
+36:                     │  /opt/forum/frontend         :3306      │
+37:                     │                                         │
+38:                     │  /etc/systemd/system/forum-api.service  │
+39:                     │  cron.d/forum  →  monitor.py / git_pull │
+40:                     └─────────────────────────────────────────┘
+41: ```
+42: 
+43: ---
+44: 
+45: ## 2. 环境准备
+46: 
+47: ### 2.1 系统更新
+48: 
+49: ```bash
+50: # 更新系统包
+51: sudo dnf update -y
+52: 
+53: # 安装必需工具
+54: sudo dnf install -y git curl wget htop vim net-tools mariadb mariadb-server python3 python3-pip python3-devel nginx cronie firewalld
+55: 
+56: # 安装编译依赖 (pip 安装部分包需要)
+57: sudo dnf install -y gcc make openssl-devel bzip2-devel libffi-devel zlib-devel perl-devel libcurl-devel libjpeg-turbo-devel libpng-devel
+58: ```
+59: 
+60: ### 2.2 创建专用用户
+61: 
+62: ```bash
+63: sudo useradd -r -m -d /home/forum -s /bin/bash forum
+64: sudo usermod -aG wheel forum   # 可选：赋予 sudo 权限（谨慎）
+65: ```
+66: 
+67: ### 2.3 准备目录结构
+68: 
+69: ```bash
+70: sudo mkdir -p /opt/forum/{repo,frontend,scripts,venv,logs}
+71: sudo mkdir -p /var/lib/forum
+72: sudo mkdir -p /var/log/forum
+73: sudo mkdir -p /var/log/nginx
+74: 
+75: sudo chown -R forum:forum /opt/forum /var/lib/forum /var/log/forum
+76: sudo chmod -R 750 /opt/forum
+77: ```
+78: 
+79: ### 2.4 配置防火墙
+80: 
+81: ```bash
+82: sudo firewall-cmd --permanent --add-service=http
+83: sudo firewall-cmd --permanent --add-service=https
+84: sudo firewall-cmd --reload
+85: sudo firewall-cmd --list-all
+86: ```
+87: 
+88: ### 2.5 关闭 SELinux 限制（或配置策略）
+89: 
+90: ```bash
+91: # 临时关闭 (重启后恢复)
+92: sudo setenforce 0
+93: 
+94: # 永久关闭 (不推荐，生产环境建议配置 SELinux 策略)
+95: sudo sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
+96: ```
+97: 
+98: ---
+99: 
+100: ## 3. 数据库初始化
+101: 
+102: ### 3.1 安装并启动 MariaDB
+103: 
+104: ```bash
+105: sudo dnf install -y mariadb mariadb-server
+106: sudo systemctl enable --now mariadb
+107: sudo mysql_secure_installation   # 交互式配置安全选项
+108: ```
+109: 
+110: ### 3.2 创建数据库与用户
+111: 
+112: ```bash
+113: sudo mariadb -u root <<'SQL'
+114: CREATE DATABASE IF NOT EXISTS forum
+115:     CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+116: 
+117: CREATE USER IF NOT EXISTS 'forum'@'localhost' IDENTIFIED BY 'CHANGE_ME_STRONG_PASSWORD';
+118: CREATE USER IF NOT EXISTS 'forum'@'127.0.0.1' IDENTIFIED BY 'CHANGE_ME_STRONG_PASSWORD';
+119: 
+120: GRANT ALL PRIVILEGES ON forum.* TO 'forum'@'localhost';
+121: GRANT ALL PRIVILEGES ON forum.* TO 'forum'@'127.0.0.1';
+122: 
+123: FLUSH PRIVILEGES;
+124: SQL
+125: ```
+126: 
+127: ### 3.3 创建表结构 (参照需求文档)
+128: 
+129: ```bash
+130: sudo mariadb -u forum -pCHANGE_ME_STRONG_PASSWORD forum <<'SQL'
+131: CREATE TABLE IF NOT EXISTS users (
+132:     id            INT AUTO_INCREMENT PRIMARY KEY,
+133:     username      VARCHAR(50) NOT NULL UNIQUE,
+134:     password_hash VARCHAR(255) NOT NULL,
+135:     role          VARCHAR(20) NOT NULL DEFAULT 'user',
+136:     created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+137:     KEY idx_users_username (username)
+138: ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+139: 
+140: CREATE TABLE IF NOT EXISTS posts (
+141:     id         INT AUTO_INCREMENT PRIMARY KEY,
+142:     user_id    INT NOT NULL,
+143:     title      VARCHAR(100) NOT NULL,
+144:     content    TEXT NOT NULL,
+145:     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+146:     KEY idx_posts_user_id (user_id),
+147:     KEY idx_posts_created_at (created_at),
+148:     CONSTRAINT fk_posts_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+149: ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+150: 
+151: CREATE TABLE IF NOT EXISTS replies (
+152:     id         INT AUTO_INCREMENT PRIMARY KEY,
+153:     post_id    INT NOT NULL,
+154:     user_id    INT NOT NULL,
+155:     content    TEXT NOT NULL,
+156:     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+157:     KEY idx_replies_post_id (post_id),
+158:     KEY idx_replies_user_id (user_id),
+159:     CONSTRAINT fk_replies_post FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE,
+160:     CONSTRAINT fk_replies_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+161: ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+162: SQL
+163: ```
+164: 
+165: ### 3.4 创建配置环境变量文件
+166: 
+167: ```bash
+168: sudo tee /etc/forum/forum.env > /dev/null <<'ENV'
+169: # ---- 数据库配置 ----
+170: FORUM_DB_HOST=127.0.0.1
+171: FORUM_DB_PORT=3306
+172: FORUM_DB_USER=forum
+173: FORUM_DB_PASSWORD=[REDACTED:credential]
+174: FORUM_DB_NAME=forum
+175: 
+176: # ---- 应用配置 ----
+177: FORUM_SECRET_KEY=[REDACTED:credential]
+178: FORUM_BIND=127.0.0.1
+179: FORUM_PORT=5000
+180: FORUM_LOG_LEVEL=INFO
+181: 
+182: # ---- JWT 配置 ----
+183: FORUM_JWT_EXPIRE_HOURS=24
+184: FORUM_JWT_ALGO=HS256
+185: ENV
+186: sudo chmod 600 /etc/forum/forum.env
+187: sudo chown forum:forum /etc/forum/forum.env
+188: ```
+189: 
+190: ---
+191: 
+192: ## 4. 代码部署
+193: 
+194: ### 4.1 克隆仓库
+195: 
+196: ```bash
+197: sudo -u forum git clone https://gitee.com/<your-org>/<your-repo>.git /opt/forum/repo
+198: sudo chown -R forum:forum /opt/forum/repo
+199: ```
+200: 
+201: ### 4.2 配置 SSH Key (供 git_pull.sh 使用)
+202: 
+203: ```bash
+204: sudo -u forum ssh-keygen -t ed25519 -N "" -f /home/forum/.ssh/id_ed25519
+205: sudo -u forum cat /home/forum/.ssh/id_ed25519.pub
+206: # 将公钥添加到 Gitee 账户的 SSH Key 设置中
+207: 
+208: sudo -u forum ssh -T git@gitee.com   # 验证连通性
+209: ```
+210: 
+211: ### 4.3 创建虚拟环境并安装依赖
+212: 
+213: ```bash
+214: cd /opt/forum/repo
+215: 
+216: # 创建虚拟环境 (首次)
+217: python3 -m venv /opt/forum/venv
+218: source /opt/forum/venv/bin/activate
+219: 
+220: # 安装依赖
+221: pip install --upgrade pip setuptools wheel
+222: pip install -r requirements.txt
+223: pip install gunicorn flask-migrate alembic mysqlclient PyMySQL bcrypt PyJWT
+224: 
+225: # 退出虚拟环境
+226: deactivate
+227: ```
+228: 
+229: ### 4.4 复制部署脚本
+230: 
+231: ```bash
+232: cp deploy/git_pull.sh deploy/monitor.py /opt/forum/scripts/
+233: sudo chown -R root:root /opt/forum/scripts
+234: sudo chmod 750 /opt/forum/scripts/*.sh
+235: sudo chmod 750 /opt/forum/scripts/*.py
+236: ```
+237: 
+238: ---
+239: 
+240: ## 5. 配置修改说明
+241: 
+242: ### 5.1 Nginx 配置
+243: 
+244: **部署路径**: `/etc/nginx/conf.d/forum.conf`
+245: 
+246: ```bash
+247: sudo cp deploy/nginx.conf /etc/nginx/conf.d/forum.conf
+248: sudo nginx -t                # 测试配置
+249: sudo systemctl reload nginx  # 重载
+250: ```
+251: 
+252: **必须修改的项**:
+253: 
+254: | 项 | 位置 | 说明 |
+255: | :--- | :--- | :--- |
+256: | `server_name` | `nginx.conf` | 替换为论坛实际域名 |
+257: | `ssl_certificate` | `nginx.conf` | 替换为实际证书路径 |
+258: | `root` | `nginx.conf` | 替换为前端实际目录 |
+259: | `proxy_pass` | `nginx.conf` | 替换为后端实际地址与端口 |
+260: 
+261: ### 5.2 systemd 服务
+262: 
+263: **部署路径**: `/etc/systemd/system/forum-api.service`
+264: 
+265: ```bash
+266: sudo cp deploy/forum-api.service /etc/systemd/system/
+267: sudo systemctl daemon-reload
+268: sudo systemctl enable forum-api
+269: ```
+270: 
+271: **必须修改的项**:
+272: 
+273: | 项 | 位置 | 说明 |
+274: | :--- | :--- | :--- |
+275: | `User=forum` | `forum-api.service` | 运行用户 (需存在) |
+276: | `WorkingDirectory` | `forum-api.service` | 后端实际工作目录 |
+277: | `ExecStart` | `forum-api.service` | gunicorn 命令与实际入口 |
+278: | `EnvironmentFile` | `forum-api.service` | 指向实际 env 文件路径 |
+279: | `Environment=...` | `forum-api.service` | 替换默认密码 / SECRET_KEY |
+280: 
+281: ### 5.3 Git 更新脚本
+282: 
+283: **部署路径**: `/opt/forum/scripts/git_pull.sh`
+284: 
+285: 修改环境变量或在脚本头部修改:
+286: 
+287: | 变量 | 默认值 | 说明 |
+288: | :--- | :--- | :--- |
+289: | `FORUM_APP_ROOT` | `/opt/forum` | 应用根目录 |
+290: | `FORUM_REPO_DIR` | `$FORUM_APP_ROOT/repo` | Git 仓库目录 |
+291: | `FORUM_BACKEND_DIR` | `$FORUM_REPO_DIR/backend` | 后端代码目录 |
+292: | `FORUM_FRONTEND_DIR` | `$FORUM_REPO_DIR/frontend` | 前端代码目录 |
+293: | `FORUM_VENV_DIR` | `$FORUM_APP_ROOT/venv` | 虚拟环境目录 |
+294: | `FORUM_SERVICE_NAME` | `forum-api` | systemd 服务名 |
+295: | `FORUM_GIT_BRANCH` | `main` | 目标 Git 分支 |
+296: 
+297: ### 5.4 监控脚本配置
+298: 
+299: **部署路径**: `/opt/forum/scripts/monitor.py`
+300: 
+301: 修改 `CONFIG` 字典中的项:
+302: 
+303: | 键 | 默认值 | 说明 |
+304: | :--- | :--- | :--- |
+305: | `nginx_access_log` | `/var/log/nginx/forum_access.log` | 实际访问日志路径 |
+306: | `nginx_error_log` | `/var/log/nginx/forum_error.log` | 实际错误日志路径 |
+307: | `service_name` | `forum-api` | systemd 服务名 |
+308: | `error_5xx_threshold` | `10` | 5xx 阈值 |
+309: | `disk_threshold` | `85` | 磁盘使用率阈值 (%) |
+310: | `smtp_host` | `smtp.example.com` | SMTP 服务器地址 |
+311: | `smtp_password` | `change_me` | SMTP 密码 |
+312: | `alert_to` | `["admin@example.com"]` | 告警收件人 |
+313: | `db_password` | `change_me` | 数据库密码 |
+314: 
+315: ---
+316: 
+317: ## 6. 服务启动
+318: 
+319: ### 6.1 首次启动
+320: 
+321: ```bash
+322: # 1. 启用 systemd 服务
+323: sudo systemctl daemon-reload
+324: sudo systemctl enable forum-api
+325: 
+326: # 2. 启动后端
+327: sudo systemctl start forum-api
+328: sudo systemctl status forum-api
+329: 
+330: # 3. 测试 Nginx 配置
+331: sudo nginx -t
+332: sudo systemctl restart nginx
+333: 
+334: # 4. 验证访问
+335: curl -s http://127.0.0.1:5000/healthz    # 直接访问后端
+336: curl -s https://forum.example.com/healthz # 通过 Nginx 访问
+337: ```
+338: 
+339: ### 6.2 查看服务日志
+340: 
+341: ```bash
+342: # 实时跟踪
+343: sudo journalctl -u forum-api -f
+344: 
+345: # 最近 100 条
+346: sudo journalctl -u forum-api -n 100 --no-pager
+347: 
+348: # 上次启动以来的日志
+349: sudo journalctl -u forum-api -b -n 100 --no-pager
+350: 
+351: # 错误日志
+352: sudo journalctl -u forum-api -p err -n 50 --no-pager
+353: ```
+354: 
+355: ---
+356: 
+357: ## 7. 监控配置
+358: 
+359: ### 7.1 手动执行巡检
+360: 
+361: ```bash
+362: # 完整巡检
+363: python3 /opt/forum/scripts/monitor.py
+364: 
+365: # 仅打印，不发邮件
+366: python3 /opt/forum/scripts/monitor.py --dry-run
+367: 
+368: # JSON 输出 (便于对接监控平台)
+369: python3 /opt/forum/scripts/monitor.py --json
+370: 
+371: # 详细调试
+372: python3 /opt/forum/scripts/monitor.py --verbose
+373: ```
+374: 
+375: ### 7.2 配置 SMTP 告警
+376: 
+377: **方案 A: 阿里云 / 腾讯云 邮件推送**
+378: 
+379: 1. 创建发信地址并获取 SMTP 授权码
+380: 2. 修改 `monitor.py` 中的 `CONFIG`:
+381:    - `smtp_host`: `smtp.mxhichina.com` (阿里云) / `smtp.qiye.aliyun.com`
+382:    - `smtp_port`: `465`
+383:    - `smtp_use_ssl`: `True`
+384:    - `smtp_user`: `forum-alert@example.com`
+385:    - `smtp_password`: SMTP 授权码
+386:    - `alert_to`: 接收告警的邮箱
+387: 
+388: **方案 B: 企业邮箱**
+389: 
+390: 1. 启用 SMTP 服务并获取密码
+391: 2. `smtp_host`: 企业邮箱 SMTP 服务器 (如 `smtp.corp.example.com`)
+392: 3. `smtp_port`: `465` (SSL) 或 `587` (STARTTLS)
+393: 
+394: **方案 C: 自建 Mailu / iRedMail**
+395: 
+396: 1. 部署内部邮件服务器
+397: 2. `smtp_host`: `mail.example.com`
+398: 3. `smtp_port`: `25` 或 `465`
+399: 
+400: ### 7.3 自定义告警阈值
+401: 
+402: 修改 `monitor.py` 中的 `CONFIG`:
+403: 
+404: ```python
+405: CONFIG = {
+406:     "error_5xx_threshold": 10,      # 5xx 阈值
+407:     "error_log_threshold": 5,       # error.log 阈值
+408:     "disk_threshold": 85,           # 磁盘阈值
+409:     "memory_threshold": 90,         # 内存阈值
+410:     "load_threshold": 2.0,          # CPU 负载比
+411:     "consecutive_failures_threshold": 3,  # 连续失败抑制
+412:     ...
+413: }
+414: ```
+415: 
+416: ### 7.4 使用外部配置文件
+417: 
+418: ```bash
+419: # 创建外部配置
+420: sudo tee /etc/forum/monitor.json > /dev/null <<'JSON'
+421: {
+422:     "error_5xx_threshold": 15,
+423:     "disk_threshold": 90,
+424:     "smtp_password": "[REDACTED:credential]",
+425:     "alert_to": ["admin@corp.example.com"]
+426: }
+427: JSON
+428: 
+429: # 执行时指定
+430: python3 /opt/forum/scripts/monitor.py --config /etc/forum/monitor.json
+431: ```
+432: 
+433: ---
+434: 
+435: ## 8. 定时任务
+436: 
+437: ### 8.1 安装 crontab
+438: 
+439: **方案 A (推荐): 系统级**
+440: 
+441: ```bash
+442: sudo cp deploy/crontab.txt /etc/cron.d/forum
+443: sudo chmod 644 /etc/cron.d/forum
+444: ```
+445: 
+446: **方案 B: 导入 root 用户**
+447: 
+448: ```bash
+449: sudo crontab -u root deploy/crontab.txt
+450: sudo crontab -u root -l   # 验证
+451: ```
+452: 
+453: ### 8.2 验证 cron 运行
+454: 
+455: ```bash
+456: sudo systemctl status cron
+457: tail -f /var/log/cron
+458: ```
+459: 
+460: ### 8.3 定时任务说明
+461: 
+462: | 任务 | 频率 | 说明 |
+463: | :--- | :--- | :--- |
+464: | 监控脚本 | 每 5 分钟 | 巡检日志与系统状态 |
+465: | Git 更新 | 每日 03:00 | 拉取代码并重启服务 |
+466: | 日志清理 | 每日 04:00 | 删除 30 天前日志 |
+467: | 状态快照 | 每 15 分钟 | 记录资源使用 |
+468: | 日志归档 | 每日 03:30 | 压缩 Nginx 日志 |
+469: 
+470: ---
+471: 
+472: ## 9. 常用运维命令
+473: 
+474: ### 9.1 服务管理
+475: 
+476: ```bash
+477: # 启动 / 停止 / 重启 / 状态
+478: sudo systemctl start forum-api
+479: sudo systemctl stop forum-api
+480: sudo systemctl restart forum-api
+481: sudo systemctl status forum-api
+482: 
+483: # 启用开机自启
+484: sudo systemctl enable forum-api
+485: 
+486: # 查看最近重启次数
+487: sudo systemctl show forum-api -p NRestarts
+488: ```
+489: 
+490: ### 9.2 日志查看
+491: 
+492: ```bash
+493: # 后端日志
+494: sudo journalctl -u forum-api -f
+495: 
+496: # Nginx 日志
+497: tail -f /var/log/nginx/forum_access.log
+498: tail -f /var/log/nginx/forum_error.log
+499: 
+500: # 监控日志
+501: tail -f /var/log/forum/monitor.log
+502: tail -f /var/log/forum/git_pull.log
+503: ```
+504: 
+505: ### 9.3 手动更新
+506: 
+507: ```bash
+508: # 完整更新
+509: sudo /opt/forum/scripts/git_pull.sh
+510: 
+511: # 仅拉取不重启
+512: sudo /opt/forum/scripts/git_pull.sh --dry-run
+513: 
+514: # 回滚上一版本
+515: sudo /opt/forum/scripts/git_pull.sh --rollback
+516: ```
+517: 
+518: ### 9.4 数据库备份
+519: 
+520: ```bash
+521: # 单库备份
+522: sudo mariadb-dump -u forum -pCHANGE_ME forum > /backup/forum_$(date +%F).sql
+523: 
+524: # 自动定时备份 (crontab)
+525: 0 2 * * * root mariadb-dump -u forum -pCHANGE_ME forum | gzip > /backup/forum_$(date +\%F).sql.gz
+526: 
+527: # 保留最近 7 天
+528: find /backup -name 'forum_*.sql.gz' -mtime +7 -delete
+529: ```
+530: 
+531: ### 9.5 系统状态
+532: 
+533: ```bash
+534: # 磁盘
+535: df -h
+536: 
+537: # 内存
+538: free -m
+539: 
+540: # CPU
+541: top -c
+542: 
+543: # 网络连接
+544: ss -tlnp | grep -E '5000|3306|443|80'
+545: 
+546: # Nginx 连接数
+547: sudo grep 'Worker Connections:' /etc/nginx/nginx.conf
+548: ```
+549: 
+550: ---
+551: 
+552: ## 10. 故障排查
+553: 
+554: ### 10.1 服务无法启动
+555: 
+556: ```bash
+557: # 查看详细错误
+558: sudo journalctl -u forum-api -n 100 --no-pager
+559: 
+560: # 检查端口占用
+561: ss -tlnp | grep 5000
+562: 
+563: # 检查权限
+564: ls -la /opt/forum/backend
+565: ls -la /etc/forum/
+566: 
+567: # 检查 env 文件
+568: cat /etc/forum/forum.env
+569: ```
+570: 
+571: ### 10.2 Nginx 502 错误
+572: 
+573: ```bash
+574: # 后端是否存活
+575: curl -v http://127.0.0.1:5000/healthz
+576: 
+577: # Nginx 错误日志
+578: sudo tail -50 /var/log/nginx/forum_error.log
+579: 
+580: # 服务状态
+581: sudo systemctl status forum-api
+582: ```
+583: 
+584: ### 10.3 数据库连接失败
+585: 
+586: ```bash
+587: # 本地连接测试
+588: sudo mariadb -u forum -pCHANGE_ME -h 127.0.0.1 -e "SELECT 1;"
+589: 
+590: # 检查 MariaDB 状态
+591: sudo systemctl status mariadb
+592: 
+593: # 检查用户权限
+594: sudo mariadb -e "SHOW GRANTS FOR 'forum'@'127.0.0.1';"
+595: ```
+596: 
+597: ### 10.4 监控脚本无法发送邮件
+598: 
+599: ```bash
+600: # 测试 SMTP 连通性
+601: python3 -c "import smtplib; s=smtplib.SMTP_SSL('smtp.example.com', 465, timeout=20); s.login('user@x.com','pwd'); print('OK')"
+602: 
+603: # 查看告警状态文件
+604: cat /var/lib/forum/monitor/alert_state.json
+605: ```
+606: 
+607: ### 10.5 更新失败
+608: 
+609: ```bash
+610: # 查看更新日志
+611: sudo tail -100 /var/log/forum/git_pull.log
+612: 
+613: # 检查锁文件
+614: ls -la /var/run/forum-update.lock
+615: 
+616: # 手动清理锁
+617: sudo rm -f /var/run/forum-update.lock
+618: 
+619: # 回滚
+620: sudo /opt/forum/scripts/git_pull.sh --rollback
+621: ```
+622: 
+623: ---
+624: 
+625: ## 11. 安全加固建议
+626: 
+627: 1. **HTTPS 强制跳转**: 部署 Let's Encrypt 证书并启用 HSTS
+628:    ```bash
+629:    sudo dnf install -y certbot python3-certbot-nginx
+630:    sudo certbot --nginx -d forum.example.com
+631:    ```
+632: 2. **最小权限原则**: 服务以 `forum` 用户运行，非 root
+633: 3. **systemd 沙箱**: 启用 `ProtectSystem=strict`、`NoNewPrivileges` 等指令
+634: 4. **定期更新系统包**:
+635:    ```bash
+636:    sudo dnf update -y
+637:    ```
+638: 5. **fail2ban**: 限制 SSH 与登录尝试
+639:    ```bash
+640:    sudo dnf install -y fail2ban
+641:    sudo systemctl enable --now fail2ban
+642:    ```
+643: 6. **文件权限**: 敏感配置文件 `chmod 600`
+644: 7. **网络隔离**: 仅开放 80/443，其余端口走防火墙
+645: 8. **定期备份**: 数据库 + 配置 + 代码，保留至少 7 天
+646: 9. **审计日志**: 开启 `auditd` 监控关键操作
+647: 10. **配置分离**: 敏感信息使用 `EnvironmentFile`，不进入 Git 仓库
+648: 
+649: ---
+650: 
+651: ## 附录: 文件清单
+652: 
+653: | 文件 | 路径 | 说明 |
+654: | :--- | :--- | :--- |
+655: | `nginx.conf` | `/etc/nginx/conf.d/forum.conf` | Nginx 反向代理配置 |
+656: | `forum-api.service` | `/etc/systemd/system/` | systemd 服务单元 |
+657: | `git_pull.sh` | `/opt/forum/scripts/` | Git 一键更新脚本 |
+658: | `monitor.py` | `/opt/forum/scripts/` | 日志巡检与告警脚本 |
+659: | `crontab.txt` | `/etc/cron.d/forum` | 定时任务配置 |
+660: | `README.md` | `/opt/forum/` | 本部署指南 |
+661: 
+662: ---
+663: 
+664: > 文档版本: v1.0
+665: > 最后更新: $(date +%F)
+
+(End of file - total 665 lines)
+</content>

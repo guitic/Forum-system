@@ -1,0 +1,878 @@
+<path>D:\桌面\deep\Forum system\frontend\js\post.js</path>
+<type>file</type>
+<content>
+1: /* ==========================================================================
+2:    post.js - 帖子详情页逻辑
+3:    - 解析 URL 参数 ?id=XXX
+4:    - 拉取帖子详情 + 层级回复树
+5:    - 使用 marked.js 渲染 Markdown，highlight.js 高亮代码
+6:    - XSS 防护（白名单清洗）
+7:    - V3：递归渲染回复树（楼中楼，展示期最多 3 层）
+8:    - V3：内联回复表单（回复某条回复）
+9:    - V3：删除回复（作者 / 管理员，级联删除子孙）
+10:    - V3：角色徽标 —— 楼主（帖子作者）/ ADMIN
+11:    - 回复表单（需登录）
+12:    - 删除帖子（需确认弹窗，仅发帖人或 admin）
+13:    ========================================================================== */
+14: 
+15: (function (global) {
+16:   "use strict";
+17: 
+18:   var API = global.ForumAPI;
+19:   if (!API) {
+20:     console.error("[post.js] ForumAPI 未加载，请先引入 js/api.js");
+21:     return;
+22:   }
+23: 
+24:   // marked.js 全局对象
+25:   var marked = global.marked || (typeof window !== "undefined" ? window.marked : null);
+26: 
+27:   // DOM 引用
+28:   var dom = {};
+29: 
+30:   // 当前帖子数据
+31:   var currentPost = null;   // 帖子对象
+32:   var currentTree = [];     // V3：回复树（嵌套）
+33:   var replyCount = 0;       // V3：回复总数
+34:   var pendingConfirm = null;// 确认弹窗待执行回调
+35: 
+36:   /* ------------------------------------------------------------------------
+37:    * Markdown 渲染管线
+38:    * ---------------------------------------------------------------------- */
+39: 
+40:   /**
+41:    * 配置 marked 选项（一次性）
+42:    */
+43:   function setupMarked() {
+44:     if (!marked) return;
+45:     try {
+46:       if (marked.use) {
+47:         // marked v4+ API
+48:         marked.use({
+49:           gfm: true,           // GitHub Flavored Markdown
+50:           breaks: true,        // 单个换行视为 <br>
+51:           pedantic: false,
+52:           async: false,
+53:         });
+54:       } else {
+55:         // 旧版 marked 选项
+56:         marked.setOptions({
+57:           gfm: true,
+58:           breaks: true,
+59:           pedantic: false,
+60:           smartLists: true,
+61:           mangle: false,
+62:           headerIds: false,
+63:           sanitize: false, // 关闭内置 sanitize（已弃用），改用自定义 sanitize
+64:         });
+65:       }
+66:     } catch (e) {
+67:       console.warn("[post.js] marked 配置失败:", e);
+68:     }
+69:   }
+70: 
+71:   /**
+72:    * 渲染 Markdown 为安全 HTML
+73:    * @param {string} md 原始 Markdown
+74:    * @returns {string} 安全 HTML
+75:    */
+76:   function renderMarkdown(md) {
+77:     if (!md) return "";
+78:     var html;
+79:     if (marked) {
+80:       try {
+81:         html = marked.parse(md);
+82:       } catch (e) {
+83:         console.warn("[post.js] marked 解析失败，回退为纯文本:", e);
+84:         html = "<p>" + escapeHtml(md) + "</p>";
+85:       }
+86:     } else {
+87:       // marked 未加载时，至少做纯文本转义
+88:       html = "<p>" + escapeHtml(md) + "</p>";
+89:     }
+90: 
+91:     // 代码块高亮
+92:     html = highlightCodeBlocks(html);
+93: 
+94:     // XSS 清洗
+95:     html = API.sanitize(html);
+96: 
+97:     return html;
+98:   }
+99: 
+100:   function escapeHtml(s) {
+101:     return String(s)
+102:       .replace(/&/g, "&amp;")
+103:       .replace(/</g, "&lt;")
+104:       .replace(/>/g, "&gt;")
+105:       .replace(/"/g, "&quot;")
+106:       .replace(/'/g, "&#39;");
+107:   }
+108: 
+109:   /**
+110:    * 对 <pre><code> 块执行 highlight.js 高亮
+111:    * @param {string} html
+112:    * @returns {string}
+113:    */
+114:   function highlightCodeBlocks(html) {
+115:     var hljs = global.hljs || (typeof window !== "undefined" ? window.hljs : null);
+116:     if (!hljs) return html;
+117:     // 直接操作 DOM 片段，避免 sanitize 误伤代码块 class
+118:     var tmp = document.createElement("div");
+119:     tmp.innerHTML = html;
+120:     var codeNodes = tmp.querySelectorAll("pre code");
+121:     codeNodes.forEach(function (node) {
+122:       try {
+123:         hljs.highlightElement(node);
+124:       } catch (e) {
+125:         // 跳过单块错误
+126:       }
+127:     });
+128:     return tmp.innerHTML;
+129:   }
+130: 
+131:   /* ------------------------------------------------------------------------
+132:    * URL 参数解析
+133:    * ---------------------------------------------------------------------- */
+134:   function getPostId() {
+135:     var params = new URLSearchParams(window.location.search);
+136:     var id = params.get("id") || params.get("postId") || params.get("p");
+137:     return id ? decodeURIComponent(id) : null;
+138:   }
+139: 
+140:   /* ------------------------------------------------------------------------
+141:    * 当前用户（从 localStorage 缓存读取）
+142:    * ---------------------------------------------------------------------- */
+143:   function getCurrentUser() {
+144:     var me = {
+145:       username: "", nickname: "", avatarUrl: "", role: "", displayName: "",
+146:     };
+147:     try {
+148:       me.username = localStorage.getItem("username") || "";
+149:       me.nickname = localStorage.getItem("nickname") || "";
+150:       me.avatarUrl = localStorage.getItem("avatar_url") || "";
+151:       me.role = localStorage.getItem("role") || "";
+152:     } catch (e) { /* ignore */ }
+153:     me.displayName = me.nickname || me.username;
+154:     return me;
+155:   }
+156: 
+157:   function isCurrentUserAdmin() {
+158:     return getCurrentUser().role === "admin";
+159:   }
+160: 
+161:   function isCurrentUser(username) {
+162:     if (!username) return false;
+163:     var me = getCurrentUser();
+164:     return String(me.username).toLowerCase() === String(username).toLowerCase();
+165:   }
+166: 
+167:   function isPostAuthor(username) {
+168:     return !!(currentPost && username &&
+169:       String(currentPost.username || "").toLowerCase() === String(username).toLowerCase());
+170:   }
+171: 
+172:   /** 跳转到登录页并带回跳地址 */
+173:   function goLogin() {
+174:     window.location.href = "auth.html?redirect=" + encodeURIComponent(window.location.href);
+175:   }
+176: 
+177:   /**
+178:    * 渲染头像（按身份区分配色）
+179:    * @param {Object} who {avatar_url, display_name}
+180:    * @param {Object} opts
+181:    *   base  : 基础类名，如 'avatar' / 'avatar-lg' / 'reply-avatar'
+182:    *   size  : 'lg' 时给 <img> 追加 avatar-lg-img
+183:    *   op    : 楼主 → avatar-op
+184:    *   admin : 管理员 → avatar-admin
+185:    * @returns {HTMLElement}
+186:    */
+187:   function renderAvatar(who, opts) {
+188:     opts = opts || {};
+189:     var cls = (opts.base || "") +
+190:       (opts.size === "lg" ? " avatar-lg" : "") +
+191:       (opts.op ? " avatar-op" : "") +
+192:       (opts.admin ? " avatar-admin" : "");
+193:     cls = cls.trim();
+194: 
+195:     if (who.avatar_url) {
+196:       var node = API.el("span", { class: cls + " avatar-img-wrap" });
+197:       node.innerHTML = '<img class="avatar-img"' +
+198:         (opts.size === "lg" ? " avatar-lg-img" : "") +
+199:         '" src="' + escapeHtml(who.avatar_url) + '" alt="" />';
+200:       return node;
+201:     }
+202:     return API.el("span", {
+203:       class: cls,
+204:       text: API.avatarChar(who.display_name),
+205:     });
+206:   }
+207: 
+208:   /* ------------------------------------------------------------------------
+209:    * 头部导航
+210:    * ---------------------------------------------------------------------- */
+211:   function renderNav() {
+212:     var actions = dom.navActions;
+213:     if (!actions) return;
+214:     actions.innerHTML = "";
+215: 
+216:     var homeLink = API.el("a", {
+217:       class: "btn btn-ghost btn-sm",
+218:       attrs: { href: "index.html" },
+219:     }, ["←", " 首页"]);
+220:     actions.appendChild(homeLink);
+221: 
+222:     if (API.isLoggedIn()) {
+223:       var me = getCurrentUser();
+224:       if (me.displayName) {
+225:         var badge = API.el("span", { class: "user-badge" });
+226:         badge.addEventListener("click", function () {
+227:           window.location.href = "profile.html";
+228:         });
+229:         badge.style.cursor = "pointer";
+230:         badge.appendChild(renderAvatar(me, { base: "avatar", admin: me.role === "admin" }));
+231:         badge.appendChild(document.createTextNode(" " + me.displayName));
+232:         actions.appendChild(badge);
+233:       }
+234: 
+235:       var profileBtn = API.el("a", {
+236:         class: "btn btn-ghost btn-sm",
+237:         attrs: { href: "profile.html" },
+238:       }, ["⚙", " 我的"]);
+239:       actions.appendChild(profileBtn);
+240: 
+241:       var logoutBtn = API.el("a", {
+242:         class: "btn btn-ghost btn-sm",
+243:         attrs: { href: "javascript:void(0)" },
+244:       }, ["登出"]);
+245:       logoutBtn.addEventListener("click", handleLogout);
+246:       actions.appendChild(logoutBtn);
+247:     } else {
+248:       var loginBtn = API.el("a", {
+249:         class: "btn btn-primary btn-sm",
+250:         attrs: { href: "auth.html?redirect=" + encodeURIComponent(window.location.href) },
+251:       }, ["登录 / 注册"]);
+252:       actions.appendChild(loginBtn);
+253:     }
+254:   }
+255: 
+256:   function handleLogout() {
+257:     API.clearToken();
+258:     try {
+259:       localStorage.removeItem("username");
+260:       localStorage.removeItem("nickname");
+261:       localStorage.removeItem("avatar_url");
+262:       localStorage.removeItem("role");
+263:     } catch (e) { /* ignore */ }
+264:     renderNav();
+265:     renderReplyForm();
+266:     if (currentPost) renderPost(currentPost);
+267:     showToast("已退出登录", "info");
+268:   }
+269: 
+270:   /* ------------------------------------------------------------------------
+271:    * 帖子详情渲染（V3：凸显楼主）
+272:    * ---------------------------------------------------------------------- */
+273:   function renderPost(post) {
+274:     var titleEl = dom.postTitle;
+275:     var metaEl = dom.postMeta;
+276:     var contentEl = dom.postContent;
+277:     var actionsEl = dom.postActions;
+278:     if (!titleEl || !contentEl) return;
+279: 
+280:     currentPost = post;
+281:     var author = post.display_name || post.nickname || post.username || "匿名";
+282:     var time = API.formatTime(post.created_at);
+283:     var fullTime = API.formatDateTime(post.created_at);
+284:     var isAdmin = post.role === "admin";
+285: 
+286:     titleEl.textContent = post.title || "（无标题）";
+287:     document.title = (post.title || "帖子详情") + " - 技术论坛";
+288: 
+289:     // 主贴卡片：作者即楼主，佩戴主色左边框
+290:     var wrapper = dom.postDetailWrapper;
+291:     if (wrapper) wrapper.classList.add("post-op");
+292:     if (metaEl) {
+293:       metaEl.classList.remove("post-detail-admin");
+294:       if (isAdmin) metaEl.classList.add("post-detail-admin");
+295:     }
+296: 
+297:     // meta
+298:     metaEl.innerHTML = "";
+299:     metaEl.appendChild(renderAvatar(
+300:       { avatar_url: post.avatar_url, display_name: author },
+301:       { base: "avatar-lg", op: true, admin: isAdmin }
+302:     ));
+303:     metaEl.appendChild(API.el("span", { class: "author-name", text: author }));
+304:     // 帖子作者永远是楼主
+305:     metaEl.appendChild(API.el("span", { class: "tag-op", text: "楼主" }));
+306:     if (isAdmin) {
+307:       metaEl.appendChild(API.el("span", { class: "tag-admin", text: "ADMIN" }));
+308:     }
+309:     metaEl.appendChild(API.el("span", { class: "meta-dot", text: "·" }));
+310:     metaEl.appendChild(API.el("span", { attrs: { title: fullTime }, text: time }));
+311:     metaEl.appendChild(API.el("span", { class: "meta-dot", text: "·" }));
+312:     metaEl.appendChild(API.el("span", { text: replyCount + " 条回复" }));
+313: 
+314:     // actions：楼主或管理员可删除
+315:     actionsEl.innerHTML = "";
+316:     var canDelete = API.isLoggedIn() &&
+317:       (isCurrentUser(post.username) || isCurrentUserAdmin());
+318:     if (canDelete) {
+319:       var delBtn = API.el("button", { class: "btn btn-danger btn-sm" }, ["🗑", " 删除"]);
+320:       delBtn.addEventListener("click", confirmDeletePost);
+321:       actionsEl.appendChild(delBtn);
+322:     }
+323: 
+324:     // 渲染内容
+325:     contentEl.innerHTML = renderMarkdown(post.content || "");
+326:   }
+327: 
+328:   /* ------------------------------------------------------------------------
+329:    * 回复树渲染（V3）
+330:    * ---------------------------------------------------------------------- */
+331:   function renderReplies(tree) {
+332:     currentTree = tree || [];
+333:     var listEl = dom.replyList;
+334:     var countEl = dom.replyCount;
+335:     if (!listEl) return;
+336:     listEl.innerHTML = "";
+337: 
+338:     if (countEl) countEl.textContent = replyCount;
+339: 
+340:     if (currentTree.length === 0) {
+341:       listEl.appendChild(API.el("div", { class: "empty-state" }, [
+342:         API.el("div", { class: "icon", text: "💬" }),
+343:         API.el("div", { class: "text", text: "还没有回复" }),
+344:         API.el("div", { class: "hint", text: "登录后发表你的第一条回复" }),
+345:       ]));
+346:       return;
+347:     }
+348: 
+349:     var floor = 0;
+350:     currentTree.forEach(function (node) {
+351:       floor += 1;
+352:       listEl.appendChild(renderReplyNode(node, 0, floor));
+353:     });
+354:   }
+355: 
+356:   /**
+357:    * 递归渲染单个回复节点
+358:    * @param {Object} node 后端返回的回复节点
+359:    * @param {number} depth 展示深度（0 = 一级回复）
+360:    * @param {number} [floorNo] 楼层号，仅一级回复传入
+361:    * @returns {HTMLElement}
+362:    */
+363:   function renderReplyNode(node, depth, floorNo) {
+364:     if (!node) return document.createElement("div");
+365: 
+366:     var author = node.display_name || node.nickname || node.username || "匿名";
+367:     var time = API.formatTime(node.created_at);
+368:     var fullTime = API.formatDateTime(node.created_at);
+369:     var isAdmin = node.role === "admin";
+370:     var isOP = !!node.is_author || isPostAuthor(node.username);
+371:     var who = { avatar_url: node.avatar_url, display_name: author };
+372: 
+373:     // 卡片容器（按身份与深度附加修饰类）
+374:     var cardCls = "reply-item";
+375:     if (isOP) cardCls += " reply-op";
+376:     if (isAdmin) cardCls += " reply-admin";
+377:     if (depth > 0) cardCls += " reply-nested";
+378:     if (depth >= 2) cardCls += " reply-deep";
+379: 
+380:     var card = API.el("div", {
+381:       class: cardCls,
+382:       attrs: { "data-id": node.id, "data-depth": String(depth) },
+383:       id: "reply-" + node.id,
+384:     });
+385: 
+386:     // 头像
+387:     card.appendChild(renderAvatar(who, { base: "reply-avatar", op: isOP, admin: isAdmin }));
+388: 
+389:     // ===== 主体 =====
+390:     var body = API.el("div", { class: "reply-body" });
+391: 
+392:     // 头部：作者 + 楼主/ADMIN 徽标 + 楼层号 + 时间
+393:     var headChildren = [
+394:       API.el("span", { class: "reply-author", text: author }),
+395:     ];
+396:     if (isOP) headChildren.push(API.el("span", { class: "tag-op", text: "楼主" }));
+397:     if (isAdmin) headChildren.push(API.el("span", { class: "tag-admin", text: "ADMIN" }));
+398:     if (depth === 0 && floorNo) {
+399:       headChildren.push(API.el("span", { class: "reply-floor", text: "#" + floorNo }));
+400:     }
+401:     headChildren.push(API.el("span", {
+402:       class: "reply-time",
+403:       attrs: { title: fullTime },
+404:       text: time,
+405:     }));
+406:     body.appendChild(API.el("div", { class: "reply-head" }, headChildren));
+407: 
+408:     // 引用条：回复 @被回复人（仅子回复）
+409:     if (node.reply_to_display_name) {
+410:       body.appendChild(API.el("div", { class: "reply-quote" }, [
+411:         API.el("span", { class: "reply-quote-label", text: "回复" }),
+412:         API.el("span", { class: "reply-quote-target", text: "@" + node.reply_to_display_name }),
+413:       ]));
+414:     }
+415: 
+416:     // 内容（Markdown → 安全 HTML）
+417:     var contentEl = API.el("div", { class: "reply-content md-content" });
+418:     contentEl.innerHTML = renderMarkdown(node.content || "");
+419:     body.appendChild(contentEl);
+420: 
+421:     // 操作栏：回复（所有人，未登录跳登录）/ 删除（作者或管理员）
+422:     var actions = API.el("div", { class: "reply-actions" });
+423:     var replyBtn = API.el("button", {
+424:       class: "btn btn-ghost btn-sm reply-action-btn",
+425:       attrs: { type: "button" },
+426:     }, ["💬", " 回复"]);
+427:     replyBtn.addEventListener("click", function () {
+428:       if (!API.isLoggedIn()) { goLogin(); return; }
+429:       openInlineReply(node);
+430:     });
+431:     actions.appendChild(replyBtn);
+432: 
+433:     if (API.isLoggedIn() &&
+434:         (isCurrentUser(node.username) || isCurrentUserAdmin())) {
+435:       var delBtn = API.el("button", {
+436:         class: "btn btn-ghost btn-sm reply-action-btn reply-action-delete",
+437:         attrs: { type: "button" },
+438:       }, ["🗑", " 删除"]);
+439:       delBtn.addEventListener("click", function () { confirmDeleteReply(node); });
+440:       actions.appendChild(delBtn);
+441:     }
+442:     body.appendChild(actions);
+443: 
+444:     // 子回复（递归）
+445:     var children = node.children;
+446:     if (children && children.length) {
+447:       var childrenEl = API.el("div", { class: "reply-children" });
+448:       children.forEach(function (child) {
+449:         childrenEl.appendChild(renderReplyNode(child, depth + 1, null));
+450:       });
+451:       body.appendChild(childrenEl);
+452:     }
+453: 
+454:     card.appendChild(body);
+455:     return card;
+456:   }
+457: 
+458:   /* ------------------------------------------------------------------------
+459:    * 内联回复表单（V3：回复某条回复）
+460:    * ---------------------------------------------------------------------- */
+461:   /**
+462:    * 打开内联回复表单
+463:    * 同一时间只存在一个内联表单；插入到目标回复所在子树末尾并自动聚焦。
+464:    */
+465:   function openInlineReply(node) {
+466:     closeInlineReply();
+467:     var card = document.getElementById("reply-" + node.id);
+468:     if (!card) return;
+469:     var body = card.querySelector(".reply-body");
+470:     if (!body) return;
+471: 
+472:     var form = buildInlineForm(node);
+473:     body.appendChild(form);
+474:     var ta = form.querySelector("textarea");
+475:     if (ta) {
+476:       ta.focus();
+477:       try {
+478:         var pos = ta.value.length;
+479:         ta.setSelectionRange(pos, pos);
+480:       } catch (e) { /* 旧浏览器不支持 */ }
+481:     }
+482:   }
+483: 
+484:   function buildInlineForm(node) {
+485:     var target = node.display_name || node.nickname || node.username || "匿名";
+486:     var parentId = node.id;
+487: 
+488:     var bar = API.el("div", { class: "inline-reply-bar" }, [
+489:       API.el("span", { class: "inline-reply-label", text: "回复" }),
+490:       API.el("span", { class: "inline-reply-target", text: "@" + target }),
+491:     ]);
+492:     var closeBtn = API.el("button", {
+493:       class: "inline-reply-close",
+494:       attrs: { type: "button", "aria-label": "取消回复" },
+495:     }, ["×"]);
+496:     closeBtn.addEventListener("click", closeInlineReply);
+497:     bar.appendChild(closeBtn);
+498: 
+499:     var ta = API.el("textarea", {
+500:       class: "form-control md-editor inline-reply-textarea",
+501:       attrs: {
+502:         maxlength: "5000",
+503:         rows: "3",
+504:         placeholder: "回复 @" + target + "，支持 Markdown 语法…",
+505:       },
+506:     });
+507:     // 预填 @引用，便于被回复人感知上下文
+508:     ta.value = "@" + target + " ";
+509: 
+510:     var btn = API.el("button", {
+511:       class: "btn btn-primary btn-sm inline-reply-submit",
+512:       attrs: { type: "button" },
+513:     }, ["发布回复"]);
+514:     var foot = API.el("div", { class: "inline-reply-foot" }, [
+515:       API.el("span", {
+516:         class: "inline-reply-hint",
+517:         text: "<kbd>Ctrl/Cmd</kbd> + <kbd>Enter</kbd> 快速提交",
+518:       }),
+519:       btn,
+520:     ]);
+521: 
+522:     btn.addEventListener("click", function () {
+523:       submitInlineReply(parentId, ta, btn);
+524:     });
+525:     ta.addEventListener("keydown", function (e) {
+526:       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+527:         e.preventDefault();
+528:         submitInlineReply(parentId, ta, btn);
+529:       }
+530:     });
+531: 
+532:     return API.el("div", {
+533:       class: "inline-reply-form",
+534:       attrs: { "data-parent": String(parentId) },
+535:     }, [bar, ta, foot]);
+536:   }
+537: 
+538:   function closeInlineReply() {
+539:     var existed = document.querySelector(".inline-reply-form");
+540:     if (existed && existed.parentNode) existed.parentNode.removeChild(existed);
+541:   }
+542: 
+543:   async function submitInlineReply(parentId, ta, btn) {
+544:     if (!currentPost) return;
+545:     if (!API.isLoggedIn()) { goLogin(); return; }
+546:     var content = (ta.value || "").trim();
+547:     if (!content) {
+548:       if (ta) ta.focus();
+549:       return;
+550:     }
+551: 
+552:     if (btn) {
+553:       btn.disabled = true;
+554:       btn.textContent = "提交中…";
+555:     }
+556:     try {
+557:       await API.createReply(currentPost.id, content, parentId);
+558:       showToast("回复发布成功！", "success");
+559:       loadPost(); // 整棵树刷新，内联表单随之移除
+560:     } catch (err) {
+561:       showToast(err.message || "回复失败", "error");
+562:       if (btn) {
+563:         btn.disabled = false;
+564:         btn.textContent = "发布回复";
+565:       }
+566:     }
+567:   }
+568: 
+569:   /* ------------------------------------------------------------------------
+570:    * 回复表单（一级回复，底部固定）
+571:    * ---------------------------------------------------------------------- */
+572:   function renderReplyForm() {
+573:     var form = dom.replyForm;
+574:     var prompt = dom.replyLoginPrompt;
+575:     if (!form && !prompt) return;
+576: 
+577:     if (!API.isLoggedIn()) {
+578:       if (form) form.classList.add("hidden");
+579:       if (prompt) {
+580:         prompt.classList.remove("hidden");
+581:         prompt.innerHTML = "";
+582:         prompt.appendChild(API.el("span", { text: "登录后可参与讨论" }));
+583:         prompt.appendChild(API.el("a", {
+584:           class: "btn btn-primary btn-sm",
+585:           attrs: { href: "auth.html?redirect=" + encodeURIComponent(window.location.href) },
+586:           text: "去登录",
+587:         }));
+588:       }
+589:       return;
+590:     }
+591: 
+592:     if (prompt) prompt.classList.add("hidden");
+593:     if (form) form.classList.remove("hidden");
+594:   }
+595: 
+596:   async function submitReply() {
+597:     if (!currentPost) return;
+598:     if (!API.isLoggedIn()) {
+599:       goLogin();
+600:       return;
+601:     }
+602:     var content = (dom.replyContent.value || "").trim();
+603:     if (!content) {
+604:       dom.replyGroup.classList.add("has-error");
+605:       return;
+606:     }
+607:     dom.replyGroup.classList.remove("has-error");
+608: 
+609:     var btn = dom.replySubmitBtn;
+610:     btn.disabled = true;
+611:     btn.textContent = "提交中…";
+612:     try {
+613:       await API.createReply(currentPost.id, content); // 不传 parentId = 一级回复
+614:       dom.replyContent.value = "";
+615:       showToast("回复发布成功！", "success");
+616:       loadPost();
+617:     } catch (err) {
+618:       showToast(err.message || "回复失败", "error");
+619:     } finally {
+620:       btn.disabled = false;
+621:       btn.textContent = "发布回复";
+622:     }
+623:   }
+624: 
+625:   /* ------------------------------------------------------------------------
+626:    * 删除确认（通用弹窗：帖子 / 回复）
+627:    * ---------------------------------------------------------------------- */
+628:   function confirmAction(message, btnLabel, onConfirm) {
+629:     pendingConfirm = typeof onConfirm === "function" ? onConfirm : null;
+630:     if (!dom.confirmBackdrop) return;
+631:     dom.confirmMessage.textContent = message;
+632:     dom.confirmDeleteBtn.textContent = btnLabel || "确认";
+633:     dom.confirmDeleteBtn.disabled = false;
+634:     dom.confirmBackdrop.classList.remove("hidden");
+635:   }
+636: 
+637:   function closeConfirm() {
+638:     pendingConfirm = null;
+639:     if (dom.confirmBackdrop) dom.confirmBackdrop.classList.add("hidden");
+640:     if (dom.confirmDeleteBtn) {
+641:       dom.confirmDeleteBtn.disabled = false;
+642:       dom.confirmDeleteBtn.textContent = "确认";
+643:     }
+644:   }
+645: 
+646:   async function doConfirm() {
+647:     var fn = pendingConfirm;
+648:     pendingConfirm = null;
+649:     closeConfirm();
+650:     if (!fn) return;
+651:     try {
+652:       await fn();
+653:     } catch (e) {
+654:       console.error("[post.js] 确认操作失败:", e);
+655:     }
+656:   }
+657: 
+658:   function confirmDeletePost() {
+659:     if (!currentPost) return;
+660:     confirmAction(
+661:       "确定要删除帖子「" + (currentPost.title || "") + "」吗？其下所有回复将一并删除，该操作不可恢复。",
+662:       "删除帖子",
+663:       doDeletePost
+664:     );
+665:   }
+666: 
+667:   async function doDeletePost() {
+668:     if (!currentPost) return;
+669:     try {
+670:       await API.deletePost(currentPost.id);
+671:       showToast("帖子已删除", "success");
+672:       setTimeout(function () {
+673:         window.location.href = "index.html";
+674:       }, 500);
+675:     } catch (err) {
+676:       showToast(err.message || "删除失败", "error");
+677:     }
+678:   }
+679: 
+680:   function confirmDeleteReply(reply) {
+681:     var msg = "确定要删除这条回复吗？";
+682:     var sub = reply.reply_count || 0;
+683:     if (sub > 0) {
+684:       msg += "该回复下还有 " + sub + " 条子回复，将一并删除。";
+685:     }
+686:     msg += " 该操作不可恢复。";
+687:     confirmAction(msg, "删除回复", function () {
+688:       return doDeleteReply(reply.id);
+689:     });
+690:   }
+691: 
+692:   async function doDeleteReply(replyId) {
+693:     try {
+694:       var data = await API.deleteReply(replyId);
+695:       var n = (data && data.deleted_count) || 1;
+696:       showToast("已删除 " + n + " 条回复", "success");
+697:       loadPost();
+698:     } catch (err) {
+699:       showToast(err.message || "删除失败", "error");
+700:     }
+701:   }
+702: 
+703:   /* ------------------------------------------------------------------------
+704:    * 数据加载
+705:    * ---------------------------------------------------------------------- */
+706:   async function loadPost() {
+707:     var id = getPostId();
+708:     if (!id) {
+709:       renderNotFound("缺少帖子 ID 参数");
+710:       return;
+711:     }
+712: 
+713:     dom.postDetailWrapper.classList.add("hidden");
+714:     dom.postLoading.classList.remove("hidden");
+715: 
+716:     try {
+717:       var data = await API.getPost(id);
+718:       var post = data.post || data;
+719:       var replies = data.replies || [];
+720: 
+721:       replyCount = data.reply_count !== undefined
+722:         ? data.reply_count
+723:         : replies.length;
+724: 
+725:       var tree = data.reply_tree || buildTreeFromFlat(replies);
+726: 
+727:       dom.postLoading.classList.add("hidden");
+728:       dom.postDetailWrapper.classList.remove("hidden");
+729:       renderPost(post);
+730:       renderReplies(tree);
+731:     } catch (err) {
+732:       dom.postLoading.classList.add("hidden");
+733:       if (err.status === 404) {
+734:         renderNotFound("帖子不存在或已被删除");
+735:       } else if (err.network) {
+736:         renderNotFound("无法连接到后端服务，请确认 API 已启动");
+737:       } else {
+738:         renderNotFound(err.message || "加载帖子失败");
+739:       }
+740:     }
+741:   }
+742: 
+743:   /**
+744:    * 兼容旧后端：从扁平 replies 列表按 parent_id 组装为树。
+745:    * 新后端会直接返回 reply_tree，此函数仅在缺失时兜底。
+746:    */
+747:   function buildTreeFromFlat(replies) {
+748:     var byId = {};
+749:     replies.forEach(function (r) { byId[r.id] = r; });
+750:     var roots = [];
+751:     replies.forEach(function (r) {
+752:       r.children = r.children || [];
+753:       var parent = r.parent_id ? byId[r.parent_id] : null;
+754:       if (parent && parent.id !== r.id) {
+755:         parent.children.push(r);
+756:       } else {
+757:         roots.push(r);
+758:       }
+759:     });
+760:     return roots;
+761:   }
+762: 
+763:   function renderNotFound(msg) {
+764:     dom.postLoading.classList.add("hidden");
+765:     dom.postDetailWrapper.classList.add("hidden");
+766:     var empty = document.getElementById("post-not-found");
+767:     if (!empty) return;
+768:     empty.classList.remove("hidden");
+769:     empty.innerHTML = "";
+770:     empty.appendChild(API.el("div", { class: "icon", text: "🚫" }));
+771:     empty.appendChild(API.el("div", { class: "text", text: msg }));
+772:     empty.appendChild(API.el("a", {
+773:       class: "btn btn-primary",
+774:       attrs: { href: "index.html" },
+775:       text: "返回首页",
+776:     }));
+777:   }
+778: 
+779:   /* ------------------------------------------------------------------------
+780:    * Toast
+781:    * ---------------------------------------------------------------------- */
+782:   var toastTimer = null;
+783:   function showToast(msg, type) {
+784:     var container = dom.toastContainer;
+785:     if (!container) return;
+786:     container.innerHTML = "";
+787:     var t = API.el("div", { class: "toast " + (type || "info"), text: msg });
+788:     container.appendChild(t);
+789:     if (toastTimer) clearTimeout(toastTimer);
+790:     toastTimer = setTimeout(function () {
+791:       if (t.parentNode) t.parentNode.removeChild(t);
+792:     }, 3000);
+793:   }
+794: 
+795:   /* ------------------------------------------------------------------------
+796:    * 初始化
+797:    * ---------------------------------------------------------------------- */
+798:   function init() {
+799:     dom.navActions = document.getElementById("nav-actions");
+800:     dom.postLoading = document.getElementById("post-loading");
+801:     dom.postDetailWrapper = document.getElementById("post-detail-wrapper");
+802:     dom.postTitle = document.getElementById("post-title");
+803:     dom.postMeta = document.getElementById("post-meta");
+804:     dom.postActions = document.getElementById("post-actions");
+805:     dom.postContent = document.getElementById("post-content");
+806:     dom.replyList = document.getElementById("reply-list");
+807:     dom.replyCount = document.getElementById("reply-count");
+808:     dom.replyForm = document.getElementById("reply-form");
+809:     dom.replyLoginPrompt = document.getElementById("reply-login-prompt");
+810:     dom.replyContent = document.getElementById("reply-content");
+811:     dom.replyGroup = document.getElementById("reply-group");
+812:     dom.replySubmitBtn = document.getElementById("reply-submit-btn");
+813:     dom.confirmBackdrop = document.getElementById("confirm-backdrop");
+814:     dom.confirmMessage = document.getElementById("confirm-message");
+815:     dom.confirmDeleteBtn = document.getElementById("confirm-delete-btn");
+816:     dom.confirmCancelBtn = document.getElementById("confirm-cancel-btn");
+817:     dom.toastContainer = document.getElementById("toast-container");
+818: 
+819:     setupMarked();
+820: 
+821:     renderNav();
+822:     renderReplyForm();
+823: 
+824:     // 回复表单事件（一级回复）
+825:     if (dom.replyContent) {
+826:       dom.replyContent.addEventListener("keydown", function (e) {
+827:         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+828:           e.preventDefault();
+829:           submitReply();
+830:         }
+831:       });
+832:     }
+833:     if (dom.replySubmitBtn) {
+834:       dom.replySubmitBtn.addEventListener("click", submitReply);
+835:     }
+836: 
+837:     // 删除确认弹窗事件
+838:     if (dom.confirmCancelBtn) {
+839:       dom.confirmCancelBtn.addEventListener("click", closeConfirm);
+840:     }
+841:     if (dom.confirmDeleteBtn) {
+842:       dom.confirmDeleteBtn.addEventListener("click", doConfirm);
+843:     }
+844:     if (dom.confirmBackdrop) {
+845:       dom.confirmBackdrop.addEventListener("click", function (e) {
+846:         if (e.target === dom.confirmBackdrop) closeConfirm();
+847:       });
+848:     }
+849:     // ESC 关闭确认弹窗
+850:     document.addEventListener("keydown", function (e) {
+851:       if (e.key === "Escape" && dom.confirmBackdrop &&
+852:           !dom.confirmBackdrop.classList.contains("hidden")) {
+853:         closeConfirm();
+854:       }
+855:     });
+856: 
+857:     loadPost();
+858:   }
+859: 
+860:   if (document.readyState === "loading") {
+861:     document.addEventListener("DOMContentLoaded", init);
+862:   } else {
+863:     init();
+864:   }
+865: 
+866:   // 暴露给外部（调试用）
+867:   global.ForumPost = {
+868:     reload: loadPost,
+869:     openInlineReply: openInlineReply,
+870:     closeInlineReply: closeInlineReply,
+871:   };
+872: })(typeof globalThis !== "undefined" ? globalThis : (typeof window !== "undefined" ? window : this));
+
+(End of file - total 872 lines)
+</content>

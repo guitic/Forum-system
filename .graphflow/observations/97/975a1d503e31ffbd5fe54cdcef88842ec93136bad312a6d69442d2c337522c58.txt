@@ -1,0 +1,442 @@
+<path>D:\桌面\deep\Forum system\deploy\git_pull.sh</path>
+<type>file</type>
+<content>
+1: #!/usr/bin/env bash
+2: # ============================================================================
+3: # 论坛系统 Git 一键更新脚本
+4: # 部署位置: /opt/forum/scripts/git_pull.sh
+5: # 说明:
+6: #   - 拉取 Gitee 最新代码
+7: #   - 安装/更新 Python 依赖
+8: #   - 执行数据库迁移 (Alembic / SQLAlchemy)
+9: #   - 重启 systemd 后端服务
+10: #   - 错误自动回滚 + 日志记录
+11: #   - 可通过 crontab 定时执行，也可手动执行
+12: # 用法:
+13: #   ./git_pull.sh            # 完整更新
+14: #   ./git_pull.sh --dry-run  # 仅拉取，不重启
+15: #   ./git_pull.sh --rollback # 回滚到上一个版本
+16: #   ./git_pull.sh --clean    # 拉取后执行清理
+17: # ============================================================================
+18: 
+19: set -euo pipefail
+20: IFS=$'\n\t'
+21: 
+22: # ---------------------------- 路径与配置 ----------------------------
+23: APP_ROOT="${FORUM_APP_ROOT:-/opt/forum}"
+24: REPO_DIR="${FORUM_REPO_DIR:-$APP_ROOT/repo}"
+25: BACKEND_DIR="${FORUM_BACKEND_DIR:-$REPO_DIR/backend}"
+26: FRONTEND_DIR="${FORUM_FRONTEND_DIR:-$REPO_DIR/frontend}"
+27: VENV_DIR="${FORUM_VENV_DIR:-$APP_ROOT/venv}"
+28: LOG_DIR="${FORUM_LOG_DIR:-/var/log/forum}"
+29: LOG_FILE="$LOG_DIR/git_pull.log"
+30: LOCK_FILE="/var/run/forum-update.lock"
+31: SERVICE_NAME="${FORUM_SERVICE_NAME:-forum-api}"
+32: GIT_BRANCH="${FORUM_GIT_BRANCH:-main}"
+33: 
+34: # 颜色输出 (非 TTY 自动禁用)
+35: if [[ -t 1 ]]; then
+36:     RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'
+37:     BLUE=$'\033[0;34m'; CYAN=$'\033[0;36m'; NC=$'\033[0m'
+38: else
+39:     RED=''; GREEN=''; YELLOW=''; BLUE=''; CYAN=''; NC=''
+40: fi
+41: 
+42: DRY_RUN=false
+43: ROLLBACK=false
+44: CLEAN=false
+45: 
+46: # ---------------------------- 解析参数 ----------------------------
+47: for arg in "$@"; do
+48:     case "$arg" in
+49:         --dry-run)   DRY_RUN=true ;;
+50:         --rollback)  ROLLBACK=true ;;
+51:         --clean)     CLEAN=true ;;
+52:         -h|--help)
+53:             grep '^#' "$0" | sed 's/^# \?//'
+54:             exit 0
+55:             ;;
+56:         *)
+57:             echo "${RED}未知参数: $arg${NC}" >&2
+58:             exit 2
+59:             ;;
+60:     esac
+61: done
+62: 
+63: # ---------------------------- 日志函数 ----------------------------
+64: mkdir -p "$LOG_DIR"
+65: touch "$LOG_FILE"
+66: 
+67: log() {
+68:     local level="$1"; shift
+69:     local ts
+70:     ts="$(date '+%Y-%m-%d %H:%M:%S %z')"
+71:     local msg="[$ts] [$level] $*"
+72:     echo "$msg" | tee -a "$LOG_FILE"
+73: }
+74: info()    { log "INFO"    "$@"; }
+75: warn()    { log "WARN"    "$YELLOW$*${NC}"; }
+76: error()   { log "ERROR"   "$RED$*${NC}"; }
+77: success() { log "OK"      "$GREEN$*${NC}"; }
+78: section() { log "INFO"    "${CYAN}==== $* ====${NC}"; }
+79: 
+80: # ---------------------------- 错误处理 ----------------------------
+81: cleanup() {
+82:     local exit_code=$?
+83:     if [[ -f "$LOCK_FILE" ]]; then
+84:         rm -f "$LOCK_FILE"
+85:     fi
+86:     if [[ $exit_code -ne 0 ]]; then
+87:         error "脚本以非零退出码 $exit_code 终止"
+88:         # 失败时尝试回滚服务
+89:         if [[ "$DRY_RUN" == false && "$ROLLBACK" == false ]]; then
+90:             warn "尝试恢复服务到上一稳定版本..."
+91:             if [[ -d "$REPO_DIR/.git" ]]; then
+92:                 cd "$REPO_DIR"
+93:                 if git log --oneline -2 | head -n 1 | grep -q 'HEAD'; then
+94:                     # 回滚一次提交
+95:                     git revert --no-edit HEAD 2>/dev/null || true
+96:                 fi
+97:             fi
+98:             systemctl restart "$SERVICE_NAME" 2>/dev/null || true
+99:         fi
+100:     fi
+101:     exit $exit_code
+102: }
+103: trap cleanup EXIT
+104: 
+105: # ---------------------------- 前置检查 ----------------------------
+106: preflight() {
+107:     section "前置检查"
+108: 
+109:     # 仅 root 可执行
+110:     if [[ $EUID -ne 0 ]]; then
+111:         error "请以 root 或 sudo 执行此脚本"
+112:         exit 3
+113:     fi
+114: 
+115:     # 检查必要命令
+116:     local missing=()
+117:     for cmd in git python3 pip systemctl journalctl; do
+118:         if ! command -v "$cmd" >/dev/null 2>&1; then
+119:             missing+=("$cmd")
+120:         fi
+121:     done
+122:     if [[ ${#missing[@]} -gt 0 ]]; then
+123:         error "缺少命令: ${missing[*]}"
+124:         exit 4
+125:     fi
+126: 
+127:     # 检查代码目录
+128:     if [[ ! -d "$REPO_DIR/.git" ]]; then
+129:         error "仓库目录不存在或无 .git: $REPO_DIR"
+130:         exit 5
+131:     fi
+132: 
+133:     # 检查虚拟环境
+134:     if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+135:         error "虚拟环境不存在: $VENV_DIR"
+136:         exit 6
+137:     fi
+138: 
+139:     # 检查服务状态
+140:     if ! systemctl list-unit-files | grep -q "^$SERVICE_NAME\." ; then
+141:         error "systemd 服务未安装: $SERVICE_NAME"
+142:         exit 7
+143:     fi
+144: 
+145:     success "前置检查通过"
+146: }
+147: 
+148: # ---------------------------- 锁文件 ----------------------------
+149: acquire_lock() {
+150:     if [[ -f "$LOCK_FILE" ]]; then
+151:         local pid
+152:         pid=$(cat "$LOCK_FILE" 2>/dev/null || echo "")
+153:         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+154:             error "已有更新进程运行 (PID: $pid)"
+155:             exit 8
+156:         else
+157:             warn "清理过期锁文件"
+158:             rm -f "$LOCK_FILE"
+159:         fi
+160:     fi
+161:     echo $$ > "$LOCK_FILE"
+162:     info "已获取锁文件: $LOCK_FILE (PID: $$)"
+163: }
+164: 
+165: # ---------------------------- Git 拉取 ----------------------------
+166: git_pull() {
+167:     section "Git 拉取最新代码"
+168:     cd "$REPO_DIR"
+169: 
+170:     # 记录当前 commit 便于回滚
+171:     local old_commit
+172:     old_commit="$(git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+173:     export OLD_COMMIT="$old_commit"
+174:     info "当前 HEAD: $old_commit"
+175: 
+176:     # 清理工作区
+177:     git reset --hard 2>/dev/null || true
+178:     git clean -fd 2>/dev/null || true
+179: 
+180:     # 获取远端
+181:     info "同步远端分支: $GIT_BRANCH"
+182:     if ! git fetch --all --prune --tags; then
+183:         error "git fetch 失败"
+184:         exit 10
+185:     fi
+186: 
+187:     # 切到目标分支
+188:     if ! git checkout "$GIT_BRANCH" 2>/dev/null; then
+189:         error "切换到分支 $GIT_BRANCH 失败"
+190:         exit 11
+191:     fi
+192: 
+193:     # 拉取合并
+194:     local before_count after_count
+195:     before_count="$(git rev-list --count HEAD)"
+196:     if ! git pull --ff-only origin "$GIT_BRANCH"; then
+197:         error "git pull 失败 (可能存在冲突或非快进提交)"
+198:         exit 12
+199:     fi
+200:     after_count="$(git rev-list --count HEAD)"
+201:     local new_commits=$((after_count - before_count))
+202:     local new_commit
+203:     new_commit="$(git rev-parse --short HEAD)"
+204:     info "拉取完成，新增 $new_commits 个提交，新 HEAD: $new_commit"
+205: 
+206:     if [[ $new_commits -eq 0 ]]; then
+207:         warn "无新提交，跳过后续步骤"
+208:         return 0
+209:     fi
+210:     return 0
+211: }
+212: 
+213: # ---------------------------- 依赖安装 ----------------------------
+214: install_deps() {
+215:     section "安装/更新 Python 依赖"
+216:     cd "$BACKEND_DIR"
+217: 
+218:     # 升级 pip / setuptools / wheel
+219:     "$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel 2>&1 | tee -a "$LOG_FILE"
+220: 
+221:     # 安装 requirements.txt (若存在)
+222:     if [[ -f "requirements.txt" ]]; then
+223:         info "安装 requirements.txt"
+224:         "$VENV_DIR/bin/pip" install --requirement requirements.txt \
+225:             --no-cache-dir \
+226:             --disable-pip-version-check 2>&1 | tee -a "$LOG_FILE"
+227:     else
+228:         warn "未找到 requirements.txt，跳过依赖安装"
+229:     fi
+230: 
+231:     # 可选: pyproject.toml (PEP 517)
+232:     if [[ -f "pyproject.toml" ]]; then
+233:         info "通过 pyproject.toml 安装"
+234:         "$VENV_DIR/bin/pip" install --editable . \
+235:             --no-cache-dir \
+236:             --disable-pip-version-check 2>&1 | tee -a "$LOG_FILE"
+237:     fi
+238: 
+239:     success "依赖安装完成"
+240: }
+241: 
+242: # ---------------------------- 数据库迁移 ----------------------------
+243: run_migrations() {
+244:     section "执行数据库迁移"
+245:     cd "$BACKEND_DIR"
+246: 
+247:     local migration_ok=true
+248: 
+249:     # 方案一: Alembic (Flask 常用)
+250:     if [[ -f "alembic.ini" ]]; then
+251:         info "执行 Alembic 迁移 (upgrade head)"
+252:         if ! "$VENV_DIR/bin/python" -m alembic upgrade head 2>&1 | tee -a "$LOG_FILE"; then
+253:             error "Alembic 迁移失败"
+254:             migration_ok=false
+255:         fi
+256:     # 方案二: Flask-Migrate (CLI 子命令)
+257:     elif [[ -f "migrations" ]] && [[ -d "migrations" ]]; then
+258:         info "执行 Flask-Migrate 升级"
+259:         if ! "$VENV_DIR/bin/FLASK_APP=app.py flask db upgrade" 2>&1 | tee -a "$LOG_FILE"; then
+260:             error "Flask-Migrate 升级失败"
+261:             migration_ok=false
+262:         fi
+263:     # 方案三: 自定义脚本 (scripts/migrate.py)
+264:     elif [[ -f "scripts/migrate.py" ]]; then
+265:         info "执行自定义迁移脚本"
+266:         if ! "$VENV_DIR/bin/python" scripts/migrate.py 2>&1 | tee -a "$LOG_FILE"; then
+267:             error "自定义迁移失败"
+268:             migration_ok=false
+269:         fi
+270:     else
+271:         warn "未发现迁移配置 (alembic.ini / migrations / scripts/migrate.py)，跳过"
+272:     fi
+273: 
+274:     if [[ "$migration_ok" == true ]]; then
+275:         success "数据库迁移完成"
+276:     else
+277:         error "数据库迁移失败，请人工介入"
+278:         exit 20
+279:     fi
+280: }
+281: 
+282: # ---------------------------- 前端构建 (可选) ----------------------------
+283: build_frontend() {
+284:     section "构建前端资源"
+285:     cd "$FRONTEND_DIR"
+286: 
+287:     if [[ -f "package.json" ]]; then
+288:         info "安装前端依赖 (npm ci)"
+289:         npm ci --silent 2>&1 | tee -a "$LOG_FILE"
+290:         info "构建前端 (npm run build)"
+291:         npm run build --silent 2>&1 | tee -a "$LOG_FILE"
+292:         # 拷贝到 Nginx 静态目录
+293:         local target="/opt/forum/frontend"
+294:         if [[ -d "dist" ]]; then
+295:             rsync -a --delete dist/ "$target/" 2>/dev/null || cp -rf dist/* "$target/"
+296:         fi
+297:         success "前端构建完成"
+298:     else
+299:         info "前端为纯静态文件，无需构建"
+300:     fi
+301: }
+302: 
+303: # ---------------------------- 权限修正 ----------------------------
+304: fix_permissions() {
+305:     section "修正文件权限"
+306:     if id forum >/dev/null 2>&1; then
+307:         chown -R forum:forum "$REPO_DIR" "$APP_ROOT/logs" 2>/dev/null || true
+308:     fi
+309:     chmod 750 "$BACKEND_DIR" "$FRONTEND_DIR" 2>/dev/null || true
+310:     chmod 700 "$VENV_DIR" 2>/dev/null || true
+311:     success "权限修正完成"
+312: }
+313: 
+314: # ---------------------------- 清理 ----------------------------
+315: do_clean() {
+316:     section "清理临时文件"
+317:     find "$REPO_DIR" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+318:     find "$REPO_DIR" -type f -name "*.pyc" -delete 2>/dev/null || true
+319:     find "$LOG_DIR" -type f -name "*.log" -mtime +30 -delete 2>/dev/null || true
+320:     rm -rf "$REPO_DIR"/.pytest_cache 2>/dev/null || true
+321:     success "清理完成"
+322: }
+323: 
+324: # ---------------------------- 重启服务 ----------------------------
+325: restart_service() {
+326:     section "重启 $SERVICE_NAME 服务"
+327: 
+328:     # 重载 systemd 配置 (unit 文件可能更新)
+329:     systemctl daemon-reload
+330: 
+331:     # 重载 Nginx (配置可能更新)
+332:     if command -v nginx >/dev/null 2>&1; then
+333:         if nginx -t 2>&1 | tee -a "$LOG_FILE" | grep -q "syntax is ok"; then
+334:             systemctl reload nginx 2>&1 | tee -a "$LOG_FILE" || true
+335:             info "Nginx 配置已重载"
+336:         else
+337:             error "Nginx 配置语法错误，跳过重载"
+338:         fi
+339:     fi
+340: 
+341:     # 重启后端
+342:     systemctl restart "$SERVICE_NAME" 2>&1 | tee -a "$LOG_FILE"
+343: 
+344:     # 等待服务就绪
+345:     local retries=0
+346:     while [[ $retries -lt 10 ]]; do
+347:         if systemctl is-active --quiet "$SERVICE_NAME"; then
+348:             success "$SERVICE_NAME 已激活"
+349:             break
+350:         fi
+351:         retries=$((retries + 1))
+352:         info "等待服务就绪... ($retries/10)"
+353:         sleep 2
+354:     done
+355: 
+356:     if ! systemctl is-active --quiet "$SERVICE_NAME"; then
+357:         error "$SERVICE_NAME 启动失败"
+358:         journalctl -u "$SERVICE_NAME" -n 30 --no-pager 2>&1 | tee -a "$LOG_FILE"
+359:         exit 30
+360:     fi
+361: 
+362:     # 健康检查 (HTTP 探活)
+363:     if command -v curl >/dev/null 2>&1; then
+364:         for i in {1..5}; do
+365:             if curl -sf http://127.0.0.1:5000/healthz >/dev/null 2>&1; then
+366:                 success "后端健康检查通过"
+367:                 break
+368:             fi
+369:             info "健康检查失败，重试 ($i/5)"
+370:             sleep 2
+371:         done
+372:     fi
+373: 
+374:     # 打印最近日志
+375:     info "最近 20 条服务日志:"
+376:     journalctl -u "$SERVICE_NAME" -n 20 --no-pager 2>&1 | tee -a "$LOG_FILE" || true
+377: }
+378: 
+379: # ---------------------------- 回滚 ----------------------------
+380: do_rollback() {
+381:     section "执行回滚"
+382:     cd "$REPO_DIR"
+383: 
+384:     if ! git rev-parse HEAD~1 >/dev/null 2>&1; then
+385:         error "无上一版本可回滚"
+386:         exit 40
+387:     fi
+388: 
+389:     local target
+390:     target="$(git rev-parse HEAD~1)"
+391:     info "回滚到: $target"
+392:     git checkout "$target"
+393:     install_deps
+394:     run_migrations
+395:     restart_service
+396:     success "回滚完成"
+397: }
+398: 
+399: # ---------------------------- 主流程 ----------------------------
+400: main() {
+401:     section "论坛系统更新脚本启动"
+402:     info "参数: DRY_RUN=$DRY_RUN ROLLBACK=$ROLLBACK CLEAN=$CLEAN"
+403:     info "时间: $(date '+%F %T %z')"
+404: 
+405:     acquire_lock
+406:     preflight
+407: 
+408:     if [[ "$ROLLBACK" == true ]]; then
+409:         do_rollback
+410:         exit 0
+411:     fi
+412: 
+413:     git_pull
+414: 
+415:     # dry-run 仅到拉取即止
+416:     if [[ "$DRY_RUN" == true ]]; then
+417:         warn "dry-run 模式，跳过后续步骤"
+418:         exit 0
+419:     fi
+420: 
+421:     install_deps
+422:     run_migrations
+423:     build_frontend
+424:     fix_permissions
+425: 
+426:     if [[ "$CLEAN" == true ]]; then
+427:         do_clean
+428:     fi
+429: 
+430:     restart_service
+431: 
+432:     section "更新完成"
+433:     success "论坛系统已成功更新至 $(cd "$REPO_DIR" && git rev-parse --short HEAD)"
+434: }
+435: 
+436: main "$@"
+
+(End of file - total 436 lines)
+</content>

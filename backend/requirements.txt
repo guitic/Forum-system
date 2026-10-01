@@ -1,0 +1,13 @@
+# 论坛后端依赖
+Flask==3.0.3
+SQLAlchemy==2.0.35
+PyJWT==2.9.0
+bcrypt==4.2.1
+mysql-connector-python==8.4.0
+Flask-SQLAlchemy==3.1.1
+python-dotenv==1.0.1
+Werkzeug==3.0.3
+Pillow==11.1.0
+# 生产 WSGI 服务器：deploy/forum-api.service 的 ExecStart 依赖它。
+# gunicorn 仅支持类 Unix 系统，故用平台标记让 Windows 本地开发自动跳过。
+gunicorn==23.0.0; sys_platform != "win32"

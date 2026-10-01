@@ -1,0 +1,221 @@
+<path>D:\桌面\deep\Forum system\frontend\js\index.js</path>
+<type>file</type>
+<content>
+156:         '<div class="vote-count" title="回复数">' + (replyCount > 0 ? replyCount : "") + '</div>';
+157:     } else {
+158:       voteCol = API.el("div", { class: "post-vote" }, [
+159:         API.el("div", { class: "post-avatar", text: API.avatarChar(author) }),
+160:         API.el("div", { class: "vote-count", title: "回复数" }, [String(replyCount)]),
+161:       ]);
+162:     }
+163: 
+164:     var metaItems = [
+165:       API.el("span", { class: "meta-item" }, [
+166:         "by ",
+167:         API.el("span", { class: "author", text: author }),
+168:       ]),
+169:       API.el("span", { class: "meta-item", attrs: { title: fullTime }, text: time }),
+170:       API.el("span", { class: "meta-item replies-count" }, [
+171:         "💬", " ", String(replyCount), " 回复",
+172:       ]),
+173:     ];
+174: 
+175:     var body = API.el("div", { class: "post-body" }, [
+176:       API.el("a", {
+177:         class: "post-title-link",
+178:         attrs: { href: "post.html?id=" + encodeURIComponent(id) },
+179:         text: title,
+180:       }),
+181:       excerpt
+182:         ? API.el("div", { class: "post-excerpt", text: excerpt })
+183:         : API.el("div", { class: "post-excerpt text-light", text: "（无内容）" }),
+184:       API.el("div", { class: "post-meta" }, metaItems),
+185:     ]);
+186: 
+187:     return API.el("article", {
+188:       class: "card card-hover post-card",
+189:       attrs: { "data-id": id },
+190:     }, [voteCol, body]);
+191:   }
+192: 
+193:   /* ------------------------------------------------------------------------
+194:    * 分页
+195:    * ---------------------------------------------------------------------- */
+196:   function renderPagination(state) {
+197:     var pg = dom.pagination;
+198:     if (!pg) return;
+199:     pg.innerHTML = "";
+200:     if (!state || totalPages <= 1) return;
+201: 
+202:     var page = state.page || 1;
+203:     var pages = totalPages;
+204: 
+205:     var info = API.el("span", {
+206:       class: "page-info",
+207:       text: "第 " + page + " / " + pages + " 页 · 共 " + totalCount + " 篇",
+208:     });
+209: 
+210:     // 上一页
+211:     var prevBtn = API.el("button", {
+212:       class: "page-btn",
+213:       text: "«",
+214:     });
+215:     prevBtn.setAttribute("aria-label", "上一页");
+216:     if (page <= 1) prevBtn.disabled = true;
+217:     prevBtn.addEventListener("click", function () { if (page > 1) gotoPage(page - 1); });
+218:     pg.appendChild(prevBtn);
+219: 
+220:     // 页码列表（中间省略）
+221:     var pageButtons = buildPageButtons(page, pages);
+222:     pageButtons.forEach(function (item) {
+223:       if (item === "...") {
+224:         pg.appendChild(API.el("span", { class: "ellipsis", text: "…" }));
+225:       } else {
+226:         var active = item === page;
+227:         var btn = API.el("button", {
+228:           class: "page-btn" + (active ? " active" : ""),
+229:           text: String(item),
+230:         });
+231:         btn.addEventListener("click", function () { gotoPage(item); });
+232:         pg.appendChild(btn);
+233:       }
+234:     });
+235: 
+236:     // 下一页
+237:     var nextBtn = API.el("button", {
+238:       class: "page-btn",
+239:       text: "»",
+240:     });
+241:     nextBtn.setAttribute("aria-label", "下一页");
+242:     if (page >= pages) nextBtn.disabled = true;
+243:     nextBtn.addEventListener("click", function () { if (page < pages) gotoPage(page + 1); });
+244:     pg.appendChild(nextBtn);
+245: 
+246:     pg.appendChild(info);
+247:   }
+248: 
+249:   function buildPageButtons(current, total) {
+250:     // 显示 current 附近 5 个页码
+251:     var buttons = [];
+252:     var range = 2; // 当前页前后各 2 个
+253:     var start = Math.max(1, current - range);
+254:     var end = Math.min(total, current + range);
+255: 
+256:     if (start > 1) {
+257:       buttons.push(1);
+258:       if (start > 2) buttons.push("...");
+259:     }
+260:     for (var i = start; i <= end; i++) buttons.push(i);
+261:     if (end < total) {
+262:       if (end < total - 1) buttons.push("...");
+263:       buttons.push(total);
+264:     }
+265:     return buttons;
+266:   }
+267: 
+268:   function gotoPage(p) {
+269:     if (p < 1 || p > totalPages || p === currentPage) return;
+270:     currentPage = p;
+271:     loadPosts();
+272:     // 滚动到列表顶部
+273:     if (dom.postList) {
+274:       dom.postList.scrollIntoView({ behavior: "smooth", block: "start" });
+275:     }
+276:   }
+277: 
+278:   /* ------------------------------------------------------------------------
+279:    * 数据加载
+280:    * ---------------------------------------------------------------------- */
+281:   async function loadPosts() {
+282:     dom.postList.innerHTML = "";
+283:     dom.postList.appendChild(API.el("div", { class: "loading", text: "加载中" }));
+284:     dom.pagination.innerHTML = "";
+285: 
+286:     try {
+287:       var data = await API.getPosts(currentPage, PAGE_SIZE);
+288:       var posts = data.posts || [];
+289:       totalCount = data.total || 0;
+290:       totalPages = data.pages || Math.ceil(totalCount / PAGE_SIZE) || 1;
+291:       renderList(posts);
+292:       renderPagination(data);
+293:     } catch (err) {
+294:       dom.postList.innerHTML = "";
+295:       var banner = API.el("div", { class: "error-banner" }, [
+296:         "⚠ ", " ", err.message || "加载失败",
+297:       ]);
+298:       dom.postList.appendChild(banner);
+299:       dom.postList.appendChild(API.el("div", { class: "empty-state" }, [
+300:         API.el("div", { class: "icon", text: "🔌" }),
+301:         API.el("div", { class: "text", text: "无法连接到后端服务" }),
+302:         API.el("div", { class: "hint", text: "请确认后端 API 已启动，并刷新页面重试" }),
+303:       ]));
+304:     }
+305:   }
+306: 
+307:   /* ------------------------------------------------------------------------
+308:    * 发帖模态框
+309:    * ---------------------------------------------------------------------- */
+310:   function openPostModal() {
+311:     if (!API.isLoggedIn()) {
+312:       window.location.href = "auth.html?redirect=" + encodeURIComponent(window.location.href);
+313:       return;
+314:     }
+315:     var backdrop = dom.postModal;
+316:     if (!backdrop) return;
+317:     // 清空表单
+318:     dom.postTitle.value = "";
+319:     dom.postContent.value = "";
+320:     clearFormErrors();
+321:     backdrop.classList.remove("hidden");
+322:     setTimeout(function () { dom.postTitle.focus(); }, 50);
+323:   }
+324: 
+325:   function closePostModal() {
+326:     if (dom.postModal) dom.postModal.classList.add("hidden");
+327:   }
+328: 
+329:   function clearFormErrors() {
+330:     if (dom.postTitleGroup) dom.postTitleGroup.classList.remove("has-error");
+331:     if (dom.postContentGroup) dom.postContentGroup.classList.remove("has-error");
+332:   }
+333: 
+334:   async function submitPost() {
+335:     var title = (dom.postTitle.value || "").trim();
+336:     var content = (dom.postContent.value || "").trim();
+337: 
+338:     clearFormErrors();
+339:     var hasError = false;
+340:     if (!title) {
+341:       dom.postTitleGroup.classList.add("has-error");
+342:       hasError = true;
+343:     }
+344:     if (!content) {
+345:       dom.postContentGroup.classList.add("has-error");
+346:       hasError = true;
+347:     }
+348:     if (hasError) return;
+349: 
+350:     var btn = dom.postSubmitBtn;
+351:     btn.disabled = true;
+352:     btn.textContent = "发布中…";
+353:     try {
+354:       await API.createPost(title, content);
+355:       showToast("帖子发布成功！", "success");
+356:       closePostModal();
+357:       // 重置分页到第 1 页，确保能看到新帖
+358:       currentPage = 1;
+359:       await loadPosts();
+360:     } catch (err) {
+361:       showToast(err.message || "发布失败", "error");
+362:     } finally {
+363:       btn.disabled = false;
+364:       btn.textContent = "发布帖子";
+365:     }
+366:   }
+367: 
+368:   /* ------------------------------------------------------------------------
+369:    * Toast
+370:    * ---------------------------------------------------------------------- */
+
+(Showing lines 156-370 of 459. Use offset=371 to continue.)
+</content>

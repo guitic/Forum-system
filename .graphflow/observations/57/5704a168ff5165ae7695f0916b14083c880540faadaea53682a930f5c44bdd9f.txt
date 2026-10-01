@@ -1,0 +1,2006 @@
+<path>D:\桌面\deep\Forum system\frontend\css\style.css</path>
+<type>file</type>
+<content>
+1: /* ==========================================================================
+2:    技术交流论坛 - 全局样式
+3:    现代简洁风格，HN/Reddit 风格，蓝色系主色调，卡片式布局
+4:    ========================================================================== */
+5: 
+6: :root {
+7:   --color-primary: #2563eb;
+8:   --color-primary-dark: #1d4ed8;
+9:   --color-primary-light: #3b82f6;
+10:   --color-primary-soft: #dbeafe;
+11:   --color-bg: #f1f5f9;
+12:   --color-bg-soft: #f8fafc;
+13:   --color-surface: #ffffff;
+14:   --color-border: #e2e8f0;
+15:   --color-border-strong: #cbd5e1;
+16:   --color-text: #1e293b;
+17:   --color-text-muted: #475569;
+18:   --color-text-light: #94a3b8;
+19:   --color-danger: #ef4444;
+20:   --color-danger-dark: #dc2626;
+21:   --color-danger-soft: #fee2e2;
+22:   --color-success: #10b981;
+23:   --color-success-soft: #d1fae5;
+24:   --color-warning: #f59e0b;
+25:   --color-warning-soft: #fef3c7;
+26:   --color-code-bg: #0f172a;
+27:   --color-code-text: #e2e8f0;
+28:   --color-inline-code-bg: #f1f5f9;
+29:   --color-inline-code-text: #be185d;
+30:   --radius: 8px;
+31:   --radius-sm: 6px;
+32:   --radius-lg: 12px;
+33:   --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+34:   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.10), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+35:   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.10), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+36:   --shadow-focus: 0 0 0 3px rgba(37, 99, 235, 0.25);
+37:   --transition: all 0.18s ease;
+38:   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+39:     "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial,
+40:     sans-serif;
+41:   --font-mono: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas,
+42:     "Liberation Mono", Menlo, monospace;
+43:   --max-width: 960px;
+44: }
+45: 
+46: /* ---------- Reset & Base ---------- */
+47: *,
+48: *::before,
+49: *::after {
+50:   box-sizing: border-box;
+51:   margin: 0;
+52:   padding: 0;
+53: }
+54: 
+55: html {
+56:   -webkit-text-size-adjust: 100%;
+57:   scroll-behavior: smooth;
+58: }
+59: 
+60: body {
+61:   font-family: var(--font-sans);
+62:   background: var(--color-bg);
+63:   color: var(--color-text);
+64:   line-height: 1.65;
+65:   font-size: 15px;
+66:   min-height: 100vh;
+67:   -webkit-font-smoothing: antialiased;
+68:   -moz-osx-font-smoothing: grayscale;
+69: }
+70: 
+71: a {
+72:   color: var(--color-primary);
+73:   text-decoration: none;
+74:   transition: color 0.15s ease;
+75: }
+76: 
+77: a:hover {
+78:   color: var(--color-primary-dark);
+79:   text-decoration: underline;
+80: }
+81: 
+82: button {
+83:   font-family: inherit;
+84:   cursor: pointer;
+85:   border: none;
+86:   outline: none;
+87: }
+88: 
+89: input,
+90: textarea,
+91: select {
+92:   font-family: inherit;
+93:   font-size: inherit;
+94:   color: inherit;
+95: }
+96: 
+97: ul,
+98: ol {
+99:   padding-left: 1.4em;
+100: }
+101: 
+102: img {
+103:   max-width: 100%;
+104:   height: auto;
+105: }
+106: 
+107: :focus-visible {
+108:   outline: 2px solid var(--color-primary);
+109:   outline-offset: 2px;
+110: }
+111: 
+112: /* ---------- Layout ---------- */
+113: .container {
+114:   max-width: var(--max-width);
+115:   margin: 0 auto;
+116:   padding: 0 20px;
+117: }
+118: 
+119: main {
+120:   flex: 1;
+121:   min-height: calc(100vh - 56px - 60px);
+122: }
+123: 
+124: .app {
+125:   display: flex;
+126:   flex-direction: column;
+127:   min-height: 100vh;
+128: }
+129: 
+130: /* ---------- Header ---------- */
+131: .header {
+132:   background: var(--color-surface);
+133:   border-bottom: 1px solid var(--color-border);
+134:   box-shadow: var(--shadow);
+135:   position: sticky;
+136:   top: 0;
+137:   z-index: 50;
+138: }
+139: 
+140: .header-inner {
+141:   display: flex;
+142:   align-items: center;
+143:   justify-content: space-between;
+144:   height: 56px;
+145:   gap: 16px;
+146: }
+147: 
+148: .logo {
+149:   display: flex;
+150:   align-items: center;
+151:   gap: 10px;
+152:   font-weight: 700;
+153:   font-size: 18px;
+154:   color: var(--color-text);
+155:   text-decoration: none;
+156: }
+157: 
+158: .logo:hover {
+159:   text-decoration: none;
+160:   color: var(--color-primary);
+161: }
+162: 
+163: .logo-mark {
+164:   width: 32px;
+165:   height: 32px;
+166:   border-radius: var(--radius-sm);
+167:   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+168:   color: #fff;
+169:   display: flex;
+170:   align-items: center;
+171:   justify-content: center;
+172:   font-weight: 800;
+173:   font-size: 16px;
+174:   box-shadow: var(--shadow-md);
+175: }
+176: 
+177: .nav-actions {
+178:   display: flex;
+179:   align-items: center;
+180:   gap: 8px;
+181: }
+182: 
+183: .user-badge {
+184:   display: inline-flex;
+185:   align-items: center;
+186:   gap: 6px;
+187:   padding: 5px 12px;
+188:   border-radius: 999px;
+189:   background: var(--color-primary-soft);
+190:   color: var(--color-primary-dark);
+191:   font-size: 13px;
+192:   font-weight: 600;
+193: }
+194: 
+195: .user-badge .avatar {
+196:   width: 22px;
+197:   height: 22px;
+198:   border-radius: 50%;
+199:   background: var(--color-primary);
+200:   color: #fff;
+201:   display: inline-flex;
+202:   align-items: center;
+203:   justify-content: center;
+204:   font-size: 11px;
+205:   font-weight: 700;
+206: }
+207: 
+208: /* ---------- Buttons ---------- */
+209: .btn {
+210:   display: inline-flex;
+211:   align-items: center;
+212:   justify-content: center;
+213:   gap: 6px;
+214:   padding: 8px 16px;
+215:   font-size: 14px;
+216:   font-weight: 600;
+217:   border-radius: var(--radius-sm);
+218:   background: var(--color-surface);
+219:   color: var(--color-text);
+220:   border: 1px solid var(--color-border-strong);
+221:   transition: var(--transition);
+222:   text-decoration: none;
+223:   white-space: nowrap;
+224:   line-height: 1.4;
+225: }
+226: 
+227: .btn:hover {
+228:   background: var(--color-bg-soft);
+229:   border-color: var(--color-text-light);
+230:   color: var(--color-text);
+231:   text-decoration: none;
+232: }
+233: 
+234: .btn:active {
+235:   transform: translateY(1px);
+236: }
+237: 
+238: .btn:disabled {
+239:   opacity: 0.55;
+240:   cursor: not-allowed;
+241: }
+242: 
+243: .btn-primary {
+244:   background: var(--color-primary);
+245:   color: #fff;
+246:   border-color: var(--color-primary);
+247: }
+248: 
+249: .btn-primary:hover {
+250:   background: var(--color-primary-dark);
+251:   border-color: var(--color-primary-dark);
+252:   color: #fff;
+253: }
+254: 
+255: .btn-danger {
+256:   background: var(--color-danger);
+257:   color: #fff;
+258:   border-color: var(--color-danger);
+259: }
+260: 
+261: .btn-danger:hover {
+262:   background: var(--color-danger-dark);
+263:   border-color: var(--color-danger-dark);
+264:   color: #fff;
+265: }
+266: 
+267: .btn-ghost {
+268:   background: transparent;
+269:   border-color: transparent;
+270:   color: var(--color-text-muted);
+271: }
+272: 
+273: .btn-ghost:hover {
+274:   background: var(--color-bg-soft);
+275:   color: var(--color-text);
+276:   border-color: var(--color-border);
+277: }
+278: 
+279: .btn-sm {
+280:   padding: 5px 11px;
+281:   font-size: 13px;
+282: }
+283: 
+284: .btn-lg {
+285:   padding: 11px 22px;
+286:   font-size: 15px;
+287: }
+288: 
+289: .btn-block {
+290:   width: 100%;
+291: }
+292: 
+293: /* ---------- Page Titles ---------- */
+294: .page-header {
+295:   display: flex;
+296:   align-items: center;
+297:   justify-content: space-between;
+298:   margin: 24px 0 16px;
+299:   gap: 12px;
+300:   flex-wrap: wrap;
+301: }
+302: 
+303: .page-title {
+304:   font-size: 22px;
+305:   font-weight: 700;
+306:   color: var(--color-text);
+307: }
+308: 
+309: .page-subtitle {
+310:   color: var(--color-text-muted);
+311:   font-size: 13px;
+312:   margin-top: 2px;
+313: }
+314: 
+315: /* ---------- Cards ---------- */
+316: .card {
+317:   background: var(--color-surface);
+318:   border: 1px solid var(--color-border);
+319:   border-radius: var(--radius);
+320:   box-shadow: var(--shadow);
+321:   transition: var(--transition);
+322: }
+323: 
+324: .card-hover:hover {
+325:   box-shadow: var(--shadow-md);
+326:   border-color: var(--color-border-strong);
+327:   transform: translateY(-1px);
+328: }
+329: 
+330: /* ---------- Post List ---------- */
+331: .post-list {
+332:   display: flex;
+333:   flex-direction: column;
+334:   gap: 12px;
+335:   margin-bottom: 24px;
+336: }
+337: 
+338: .post-card {
+339:   display: flex;
+340:   gap: 16px;
+341:   padding: 16px 18px;
+342: }
+343: 
+344: .post-vote {
+345:   display: flex;
+346:   flex-direction: column;
+347:   align-items: center;
+348:   gap: 4px;
+349:   min-width: 38px;
+350:   padding-top: 2px;
+351:   color: var(--color-text-light);
+352:   font-size: 12px;
+353:   font-weight: 600;
+354: }
+355: 
+356: .vote-icon {
+357:   width: 26px;
+358:   height: 26px;
+359:   border-radius: 6px;
+360:   display: flex;
+361:   align-items: center;
+362:   justify-content: center;
+363:   font-size: 14px;
+364:   color: var(--color-text-light);
+365:   transition: var(--transition);
+366: }
+367: 
+368: .vote-icon:hover {
+369:   background: var(--color-bg-soft);
+370:   color: var(--color-primary);
+371: }
+372: 
+373: .vote-count {
+374:   font-weight: 700;
+375:   color: var(--color-text);
+376: }
+377: 
+378: .post-body {
+379:   flex: 1;
+380:   min-width: 0;
+381: }
+382: 
+383: .post-title-link {
+384:   display: block;
+385:   color: var(--color-text);
+386:   font-size: 17px;
+387:   font-weight: 700;
+388:   line-height: 1.4;
+389:   margin-bottom: 6px;
+390:   word-break: break-word;
+391: }
+392: 
+393: .post-title-link:hover {
+394:   color: var(--color-primary);
+395:   text-decoration: none;
+396: }
+397: 
+398: .post-excerpt {
+399:   color: var(--color-text-muted);
+400:   font-size: 14px;
+401:   line-height: 1.6;
+402:   margin-bottom: 10px;
+403:   word-break: break-word;
+404:   display: -webkit-box;
+405:   -webkit-line-clamp: 2;
+406:   -webkit-box-orient: vertical;
+407:   overflow: hidden;
+408: }
+409: 
+410: .post-meta {
+411:   display: flex;
+412:   align-items: center;
+413:   gap: 12px;
+414:   flex-wrap: wrap;
+415:   font-size: 13px;
+416:   color: var(--color-text-light);
+417: }
+418: 
+419: .post-meta .meta-item {
+420:   display: inline-flex;
+421:   align-items: center;
+422:   gap: 4px;
+423: }
+424: 
+425: .post-meta .author {
+426:   color: var(--color-text-muted);
+427:   font-weight: 600;
+428: }
+429: 
+430: .post-meta .replies-count {
+431:   color: var(--color-primary);
+432:   font-weight: 600;
+433: }
+434: 
+435: .tag-admin {
+436:   display: inline-block;
+437:   padding: 1px 6px;
+438:   font-size: 11px;
+439:   font-weight: 700;
+440:   background: var(--color-warning-soft);
+441:   color: #92400e;
+442:   border-radius: 4px;
+443:   margin-left: 4px;
+444:   vertical-align: middle;
+445: }
+446: 
+447: /* ---------- Empty / Loading States ---------- */
+448: .empty-state {
+449:   padding: 48px 20px;
+450:   text-align: center;
+451:   color: var(--color-text-light);
+452:   background: var(--color-surface);
+453:   border: 1px dashed var(--color-border-strong);
+454:   border-radius: var(--radius);
+455: }
+456: 
+457: .empty-state .icon {
+458:   font-size: 36px;
+459:   margin-bottom: 10px;
+460:   opacity: 0.5;
+461: }
+462: 
+463: .empty-state .text {
+464:   font-size: 15px;
+465:   font-weight: 500;
+466: }
+467: 
+468: .empty-state .hint {
+469:   font-size: 13px;
+470:   margin-top: 6px;
+471: }
+472: 
+473: .loading {
+474:   padding: 48px 20px;
+475:   text-align: center;
+476:   color: var(--color-text-light);
+477: }
+478: 
+479: .loading::after {
+480:   content: "";
+481:   display: inline-block;
+482:   width: 18px;
+483:   height: 18px;
+484:   margin-left: 8px;
+485:   border: 2px solid var(--color-border-strong);
+486:   border-top-color: var(--color-primary);
+487:   border-radius: 50%;
+488:   animation: spin 0.8s linear infinite;
+489:   vertical-align: -4px;
+490: }
+491: 
+492: @keyframes spin {
+493:   to {
+494:     transform: rotate(360deg);
+495:   }
+496: }
+497: 
+498: .error-banner {
+499:   padding: 12px 16px;
+500:   background: var(--color-danger-soft);
+501:   color: var(--color-danger-dark);
+502:   border: 1px solid #fecaca;
+503:   border-radius: var(--radius-sm);
+504:   margin-bottom: 16px;
+505:   font-size: 14px;
+506:   display: flex;
+507:   align-items: center;
+508:   gap: 8px;
+509: }
+510: 
+511: /* ---------- Pagination ---------- */
+512: .pagination {
+513:   display: flex;
+514:   align-items: center;
+515:   justify-content: center;
+516:   gap: 6px;
+517:   padding: 16px 0 24px;
+518:   flex-wrap: wrap;
+519: }
+520: 
+521: .pagination .page-btn {
+522:   min-width: 36px;
+523:   height: 36px;
+524:   padding: 0 10px;
+525:   display: inline-flex;
+526:   align-items: center;
+527:   justify-content: center;
+528:   border-radius: var(--radius-sm);
+529:   background: var(--color-surface);
+530:   border: 1px solid var(--color-border);
+531:   color: var(--color-text-muted);
+532:   font-size: 14px;
+533:   font-weight: 600;
+534:   transition: var(--transition);
+535: }
+536: 
+537: .pagination .page-btn:hover:not(:disabled):not(.active) {
+538:   background: var(--color-bg-soft);
+539:   color: var(--color-text);
+540:   border-color: var(--color-border-strong);
+541: }
+542: 
+543: .pagination .page-btn.active {
+544:   background: var(--color-primary);
+545:   color: #fff;
+546:   border-color: var(--color-primary);
+547: }
+548: 
+549: .pagination .page-btn:disabled {
+550:   opacity: 0.45;
+551:   cursor: not-allowed;
+552: }
+553: 
+554: .pagination .page-info {
+555:   font-size: 13px;
+556:   color: var(--color-text-muted);
+557:   margin: 0 8px;
+558: }
+559: 
+560: .pagination .ellipsis {
+561:   padding: 0 4px;
+562:   color: var(--color-text-light);
+563: }
+564: 
+565: /* ---------- Modal ---------- */
+566: .modal-backdrop {
+567:   position: fixed;
+568:   inset: 0;
+569:   background: rgba(15, 23, 42, 0.55);
+570:   backdrop-filter: blur(2px);
+571:   display: flex;
+572:   align-items: flex-start;
+573:   justify-content: center;
+574:   z-index: 100;
+575:   padding: 40px 16px;
+576:   overflow-y: auto;
+577:   animation: fadeIn 0.15s ease;
+578: }
+579: 
+580: .modal-backdrop.hidden {
+581:   display: none;
+582: }
+583: 
+584: .modal {
+585:   background: var(--color-surface);
+586:   border-radius: var(--radius-lg);
+587:   box-shadow: var(--shadow-lg);
+588:   width: 100%;
+589:   max-width: 640px;
+590:   margin: auto;
+591:   animation: slideUp 0.2s ease;
+592: }
+593: 
+594: .modal-header {
+595:   display: flex;
+596:   align-items: center;
+597:   justify-content: space-between;
+598:   padding: 18px 22px;
+599:   border-bottom: 1px solid var(--color-border);
+600: }
+601: 
+602: .modal-title {
+603:   font-size: 17px;
+604:   font-weight: 700;
+605: }
+606: 
+607: .modal-close {
+608:   width: 32px;
+609:   height: 32px;
+610:   display: flex;
+611:   align-items: center;
+612:   justify-content: center;
+613:   border-radius: 50%;
+614:   background: transparent;
+615:   color: var(--color-text-muted);
+616:   font-size: 20px;
+617:   line-height: 1;
+618:   transition: var(--transition);
+619: }
+620: 
+621: .modal-close:hover {
+622:   background: var(--color-bg-soft);
+623:   color: var(--color-text);
+624: }
+625: 
+626: .modal-body {
+627:   padding: 20px 22px;
+628: }
+629: 
+630: .modal-footer {
+631:   padding: 14px 22px;
+632:   border-top: 1px solid var(--color-border);
+633:   display: flex;
+634:   justify-content: flex-end;
+635:   gap: 10px;
+636:   background: var(--color-bg-soft);
+637:   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+638: }
+639: 
+640: @keyframes fadeIn {
+641:   from {
+642:     opacity: 0;
+643:   }
+644:   to {
+645:     opacity: 1;
+646:   }
+647: }
+648: 
+649: @keyframes slideUp {
+650:   from {
+651:     opacity: 0;
+652:     transform: translateY(12px);
+653:   }
+654:   to {
+655:     opacity: 1;
+656:     transform: translateY(0);
+657:   }
+658: }
+659: 
+660: /* ---------- Forms ---------- */
+661: .form-group {
+662:   margin-bottom: 16px;
+663: }
+664: 
+665: .form-group:last-child {
+666:   margin-bottom: 0;
+667: }
+668: 
+669: .form-label {
+670:   display: block;
+671:   font-size: 13px;
+672:   font-weight: 600;
+673:   color: var(--color-text-muted);
+674:   margin-bottom: 6px;
+675: }
+676: 
+677: .form-label .required {
+678:   color: var(--color-danger);
+679:   margin-left: 2px;
+680: }
+681: 
+682: .form-control {
+683:   width: 100%;
+684:   padding: 9px 12px;
+685:   font-size: 14px;
+686:   background: var(--color-surface);
+687:   border: 1px solid var(--color-border-strong);
+688:   border-radius: var(--radius-sm);
+689:   color: var(--color-text);
+690:   transition: var(--transition);
+691: }
+692: 
+693: .form-control:hover {
+694:   border-color: var(--color-text-light);
+695: }
+696: 
+697: .form-control:focus {
+698:   outline: none;
+699:   border-color: var(--color-primary);
+700:   box-shadow: var(--shadow-focus);
+701: }
+702: 
+703: .form-control::placeholder {
+704:   color: var(--color-text-light);
+705: }
+706: 
+707: textarea.form-control {
+708:   resize: vertical;
+709:   min-height: 120px;
+710:   line-height: 1.6;
+711: }
+712: 
+713: textarea.form-control.md-editor {
+714:   font-family: var(--font-mono);
+715:   font-size: 13.5px;
+716:   min-height: 220px;
+717: }
+718: 
+719: .form-hint {
+720:   font-size: 12px;
+721:   color: var(--color-text-light);
+722:   margin-top: 5px;
+723: }
+724: 
+725: .form-error {
+726:   font-size: 13px;
+727:   color: var(--color-danger-dark);
+728:   margin-top: 6px;
+729:   display: none;
+730: }
+731: 
+732: .form-group.has-error .form-control {
+733:   border-color: var(--color-danger);
+734: }
+735: 
+736: .form-group.has-error .form-error {
+737:   display: block;
+738: }
+739: 
+740: .form-divider {
+741:   display: flex;
+742:   align-items: center;
+743:   gap: 10px;
+744:   color: var(--color-text-light);
+745:   font-size: 12px;
+746:   margin: 20px 0;
+747: }
+748: 
+749: .form-divider::before,
+750: .form-divider::after {
+751:   content: "";
+752:   flex: 1;
+753:   height: 1px;
+754:   background: var(--color-border);
+755: }
+756: 
+757: /* ---------- Auth Page ---------- */
+758: .auth-wrap {
+759:   min-height: calc(100vh - 56px - 60px);
+760:   display: flex;
+761:   align-items: center;
+762:   justify-content: center;
+763:   padding: 32px 16px;
+764: }
+765: 
+766: .auth-card {
+767:   width: 100%;
+768:   max-width: 400px;
+769:   padding: 32px 30px;
+770: }
+771: 
+772: .auth-card .brand {
+773:   text-align: center;
+774:   margin-bottom: 22px;
+775: }
+776: 
+777: .auth-card .brand-logo {
+778:   width: 52px;
+779:   height: 52px;
+780:   margin: 0 auto 12px;
+781:   border-radius: 14px;
+782:   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-dark));
+783:   color: #fff;
+784:   display: flex;
+785:   align-items: center;
+786:   justify-content: center;
+787:   font-weight: 800;
+788:   font-size: 24px;
+789:   box-shadow: var(--shadow-md);
+790: }
+791: 
+792: .auth-card .brand h1 {
+793:   font-size: 20px;
+794:   font-weight: 700;
+795: }
+796: 
+797: .auth-card .brand p {
+798:   color: var(--color-text-muted);
+799:   font-size: 13px;
+800:   margin-top: 4px;
+801: }
+802: 
+803: .auth-tabs {
+804:   display: flex;
+805:   background: var(--color-bg);
+806:   border-radius: var(--radius);
+807:   padding: 4px;
+808:   margin-bottom: 20px;
+809: }
+810: 
+811: .auth-tab {
+812:   flex: 1;
+813:   padding: 9px 0;
+814:   text-align: center;
+815:   font-size: 14px;
+816:   font-weight: 600;
+817:   border-radius: var(--radius-sm);
+818:   background: transparent;
+819:   color: var(--color-text-muted);
+820:   transition: var(--transition);
+821: }
+822: 
+823: .auth-tab.active {
+824:   background: var(--color-surface);
+825:   color: var(--color-primary);
+826:   box-shadow: var(--shadow);
+827: }
+828: 
+829: /* ---------- Post Detail ---------- */
+830: .post-detail {
+831:   padding: 26px 28px;
+832: }
+833: 
+834: .post-detail-head {
+835:   margin-bottom: 18px;
+836:   padding-bottom: 16px;
+837:   border-bottom: 1px solid var(--color-border);
+838: }
+839: 
+840: .post-detail-title {
+841:   font-size: 26px;
+842:   font-weight: 800;
+843:   line-height: 1.3;
+844:   margin-bottom: 12px;
+845:   word-break: break-word;
+846: }
+847: 
+848: .post-detail-meta {
+849:   display: flex;
+850:   align-items: center;
+851:   gap: 14px;
+852:   flex-wrap: wrap;
+853:   font-size: 14px;
+854:   color: var(--color-text-muted);
+855: }
+856: 
+857: .post-detail-meta .avatar-lg {
+858:   width: 34px;
+859:   height: 34px;
+860:   border-radius: 50%;
+861:   background: linear-gradient(135deg, var(--color-primary-light), var(--color-primary-dark));
+862:   color: #fff;
+863:   display: inline-flex;
+864:   align-items: center;
+865:   justify-content: center;
+866:   font-weight: 700;
+867:   font-size: 14px;
+868: }
+869: 
+870: .post-detail-meta .author-name {
+871:   color: var(--color-text);
+872:   font-weight: 700;
+873: }
+874: 
+875: .post-detail-meta .meta-dot {
+876:   color: var(--color-text-light);
+877: }
+878: 
+879: .post-actions-bar {
+880:   display: flex;
+881:   align-items: center;
+882:   gap: 8px;
+883:   margin-left: auto;
+884: }
+885: 
+886: /* ---------- Markdown Content ---------- */
+887: .md-content {
+888:   font-size: 15.5px;
+889:   line-height: 1.75;
+890:   color: var(--color-text);
+891:   word-break: break-word;
+892: }
+893: 
+894: .md-content > *:first-child {
+895:   margin-top: 0;
+896: }
+897: 
+898: .md-content > *:last-child {
+899:   margin-bottom: 0;
+900: }
+901: 
+902: .md-content h1,
+903: .md-content h2,
+904: .md-content h3,
+905: .md-content h4,
+906: .md-content h5,
+907: .md-content h6 {
+908:   font-weight: 700;
+909:   line-height: 1.3;
+910:   margin: 1.4em 0 0.6em;
+911:   color: var(--color-text);
+912: }
+913: 
+914: .md-content h1 {
+915:   font-size: 1.6em;
+916:   padding-bottom: 0.3em;
+917:   border-bottom: 1px solid var(--color-border);
+918: }
+919: 
+920: .md-content h2 {
+921:   font-size: 1.4em;
+922:   padding-bottom: 0.25em;
+923:   border-bottom: 1px solid var(--color-border);
+924: }
+925: 
+926: .md-content h3 {
+927:   font-size: 1.2em;
+928: }
+929: 
+930: .md-content h4 {
+931:   font-size: 1.05em;
+932: }
+933: 
+934: .md-content p {
+935:   margin: 0.8em 0;
+936: }
+937: 
+938: .md-content a {
+939:   color: var(--color-primary);
+940:   text-decoration: underline;
+941:   text-underline-offset: 2px;
+942: }
+943: 
+944: .md-content a:hover {
+945:   color: var(--color-primary-dark);
+946: }
+947: 
+948: .md-content ul,
+949: .md-content ol {
+950:   margin: 0.8em 0;
+951:   padding-left: 1.5em;
+952: }
+953: 
+954: .md-content li {
+955:   margin: 0.25em 0;
+956: }
+957: 
+958: .md-content li > p {
+959:   margin: 0.3em 0;
+960: }
+961: 
+962: .md-content blockquote {
+963:   margin: 1em 0;
+964:   padding: 0.6em 1em;
+965:   border-left: 4px solid var(--color-primary);
+966:   background: var(--color-bg-soft);
+967:   color: var(--color-text-muted);
+968:   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+969: }
+970: 
+971: .md-content blockquote p {
+972:   margin: 0.3em 0;
+973: }
+974: 
+975: .md-content code {
+976:   font-family: var(--font-mono);
+977:   font-size: 0.88em;
+978:   background: var(--color-inline-code-bg);
+979:   color: var(--color-inline-code-text);
+980:   padding: 0.15em 0.4em;
+981:   border-radius: 4px;
+982:   border: 1px solid var(--color-border);
+983: }
+984: 
+985: .md-content pre {
+986:   margin: 1em 0;
+987:   padding: 14px 16px;
+988:   background: var(--color-code-bg);
+989:   color: var(--color-code-text);
+990:   border-radius: var(--radius);
+991:   overflow-x: auto;
+992:   font-size: 13.5px;
+993:   line-height: 1.6;
+994:   border: 1px solid #1e293b;
+995:   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+996: }
+997: 
+998: .md-content pre code {
+999:   background: transparent;
+1000:   color: inherit;
+1001:   padding: 0;
+1002:   border: none;
+1003:   font-size: inherit;
+1004:   border-radius: 0;
+1005: }
+1006: 
+1007: .md-content hr {
+1008:   margin: 1.6em 0;
+1009:   border: none;
+1010:   border-top: 1px solid var(--color-border);
+1011: }
+1012: 
+1013: .md-content table {
+1014:   width: 100%;
+1015:   margin: 1em 0;
+1016:   border-collapse: collapse;
+1017:   font-size: 14px;
+1018: }
+1019: 
+1020: .md-content th,
+1021: .md-content td {
+1022:   padding: 8px 12px;
+1023:   border: 1px solid var(--color-border);
+1024:   text-align: left;
+1025: }
+1026: 
+1027: .md-content th {
+1028:   background: var(--color-bg-soft);
+1029:   font-weight: 700;
+1030: }
+1031: 
+1032: .md-content tr:nth-child(even) td {
+1033:   background: var(--color-bg-soft);
+1034: }
+1035: 
+1036: .md-content img {
+1037:   max-width: 100%;
+1038:   border-radius: var(--radius);
+1039:   margin: 0.6em 0;
+1040: }
+1041: 
+1042: .md-content .highlight {
+1043:   background: rgba(251, 191, 36, 0.35);
+1044:   padding: 0 2px;
+1045:   border-radius: 2px;
+1046: }
+1047: 
+1048: /* ---------- Replies ---------- */
+1049: .replies-section {
+1050:   margin-top: 32px;
+1051: }
+1052: 
+1053: .replies-title {
+1054:   font-size: 18px;
+1055:   font-weight: 700;
+1056:   margin-bottom: 14px;
+1057:   display: flex;
+1058:   align-items: center;
+1059:   gap: 8px;
+1060: }
+1061: 
+1062: .replies-title .count {
+1063:   background: var(--color-primary-soft);
+1064:   color: var(--color-primary-dark);
+1065:   padding: 2px 9px;
+1066:   border-radius: 999px;
+1067:   font-size: 13px;
+1068:   font-weight: 700;
+1069: }
+1070: 
+1071: .reply-list {
+1072:   display: flex;
+1073:   flex-direction: column;
+1074:   gap: 10px;
+1075:   margin-bottom: 20px;
+1076: }
+1077: 
+1078: .reply-item {
+1079:   display: flex;
+1080:   gap: 12px;
+1081:   padding: 14px 16px;
+1082:   background: var(--color-surface);
+1083:   border: 1px solid var(--color-border);
+1084:   border-radius: var(--radius);
+1085:   box-shadow: var(--shadow);
+1086: }
+1087: 
+1088: .reply-avatar {
+1089:   width: 36px;
+1090:   height: 36px;
+1091:   border-radius: 50%;
+1092:   background: linear-gradient(135deg, #60a5fa, #2563eb);
+1093:   color: #fff;
+1094:   display: flex;
+1095:   align-items: center;
+1096:   justify-content: center;
+1097:   font-weight: 700;
+1098:   font-size: 14px;
+1099:   flex-shrink: 0;
+1100: }
+1101: 
+1102: .reply-body {
+1103:   flex: 1;
+1104:   min-width: 0;
+1105: }
+1106: 
+1107: .reply-head {
+1108:   display: flex;
+1109:   align-items: center;
+1110:   gap: 8px;
+1111:   margin-bottom: 6px;
+1112:   flex-wrap: wrap;
+1113: }
+1114: 
+1115: .reply-author {
+1116:   font-weight: 700;
+1117:   font-size: 14px;
+1118:   color: var(--color-text);
+1119: }
+1120: 
+1121: .reply-time {
+1122:   font-size: 12px;
+1123:   color: var(--color-text-light);
+1124: }
+1125: 
+1126: .reply-content {
+1127:   font-size: 14.5px;
+1128:   line-height: 1.65;
+1129: }
+1130: 
+1131: .reply-content.md-content {
+1132:   font-size: 14.5px;
+1133: }
+1134: 
+1135: .reply-content.md-content pre {
+1136:   margin: 0.6em 0;
+1137:   padding: 10px 12px;
+1138: }
+1139: 
+1140: .reply-footer {
+1141:   margin-top: 8px;
+1142:   display: flex;
+1143:   gap: 10px;
+1144: }
+1145: 
+1146: /* ---------- Reply Form ---------- */
+1147: .reply-form {
+1148:   margin-top: 20px;
+1149: }
+1150: 
+1151: .reply-form .form-card {
+1152:   padding: 16px;
+1153:   background: var(--color-surface);
+1154:   border: 1px solid var(--color-border);
+1155:   border-radius: var(--radius);
+1156:   box-shadow: var(--shadow);
+1157: }
+1158: 
+1159: .reply-form textarea {
+1160:   min-height: 110px;
+1161: }
+1162: 
+1163: .reply-form-actions {
+1164:   display: flex;
+1165:   justify-content: space-between;
+1166:   align-items: center;
+1167:   margin-top: 10px;
+1168:   gap: 10px;
+1169: }
+1170: 
+1171: .reply-form-hint {
+1172:   font-size: 12px;
+1173:   color: var(--color-text-light);
+1174: }
+1175: 
+1176: .login-prompt {
+1177:   padding: 18px;
+1178:   text-align: center;
+1179:   background: var(--color-surface);
+1180:   border: 1px dashed var(--color-border-strong);
+1181:   border-radius: var(--radius);
+1182:   color: var(--color-text-muted);
+1183:   font-size: 14px;
+1184: }
+1185: 
+1186: .login-prompt .btn {
+1187:   margin-left: 8px;
+1188: }
+1189: 
+1190: /* ---------- Footer ---------- */
+1191: .footer {
+1192:   border-top: 1px solid var(--color-border);
+1193:   background: var(--color-surface);
+1194:   padding: 16px 0;
+1195:   text-align: center;
+1196:   color: var(--color-text-light);
+1197:   font-size: 13px;
+1198: }
+1199: 
+1200: .footer a {
+1201:   color: var(--color-text-muted);
+1202: }
+1203: 
+1204: /* ---------- Toast ---------- */
+1205: .toast-container {
+1206:   position: fixed;
+1207:   top: 70px;
+1208:   right: 16px;
+1209:   z-index: 200;
+1210:   display: flex;
+1211:   flex-direction: column;
+1212:   gap: 8px;
+1213:   pointer-events: none;
+1214: }
+1215: 
+1216: .toast {
+1217:   background: var(--color-text);
+1218:   color: #fff;
+1219:   padding: 10px 16px;
+1220:   border-radius: var(--radius-sm);
+1221:   font-size: 14px;
+1222:   font-weight: 500;
+1223:   box-shadow: var(--shadow-lg);
+1224:   animation: slideIn 0.2s ease;
+1225:   max-width: 320px;
+1226:   pointer-events: auto;
+1227: }
+1228: 
+1229: .toast.success {
+1230:   background: var(--color-success);
+1231: }
+1232: 
+1233: .toast.error {
+1234:   background: var(--color-danger);
+1235: }
+1236: 
+1237: .toast.info {
+1238:   background: var(--color-primary);
+1239: }
+1240: 
+1241: @keyframes slideIn {
+1242:   from {
+1243:     opacity: 0;
+1244:     transform: translateX(20px);
+1245:   }
+1246:   to {
+1247:     opacity: 1;
+1248:     transform: translateX(0);
+1249:   }
+1250: }
+1251: 
+1252: /* ---------- Confirm Dialog ---------- */
+1253: .confirm-backdrop {
+1254:   position: fixed;
+1255:   inset: 0;
+1256:   background: rgba(15, 23, 42, 0.55);
+1257:   display: flex;
+1258:   align-items: center;
+1259:   justify-content: center;
+1260:   z-index: 150;
+1261:   padding: 16px;
+1262:   animation: fadeIn 0.15s ease;
+1263: }
+1264: 
+1265: .confirm-backdrop.hidden {
+1266:   display: none;
+1267: }
+1268: 
+1269: .confirm-dialog {
+1270:   background: var(--color-surface);
+1271:   border-radius: var(--radius-lg);
+1272:   box-shadow: var(--shadow-lg);
+1273:   padding: 22px 24px;
+1274:   width: 100%;
+1275:   max-width: 420px;
+1276:   animation: slideUp 0.2s ease;
+1277: }
+1278: 
+1279: .confirm-icon {
+1280:   width: 44px;
+1281:   height: 44px;
+1282:   border-radius: 50%;
+1283:   background: var(--color-danger-soft);
+1284:   color: var(--color-danger-dark);
+1285:   display: flex;
+1286:   align-items: center;
+1287:   justify-content: center;
+1288:   font-size: 22px;
+1289:   margin-bottom: 14px;
+1290: }
+1291: 
+1292: .confirm-title {
+1293:   font-size: 17px;
+1294:   font-weight: 700;
+1295:   margin-bottom: 6px;
+1296: }
+1297: 
+1298: .confirm-message {
+1299:   color: var(--color-text-muted);
+1300:   font-size: 14px;
+1301:   margin-bottom: 18px;
+1302:   line-height: 1.6;
+1303: }
+1304: 
+1305: .confirm-actions {
+1306:   display: flex;
+1307:   justify-content: flex-end;
+1308:   gap: 10px;
+1309: }
+1310: 
+1311: /* ---------- Utility ---------- */
+1312: .text-muted {
+1313:   color: var(--color-text-muted);
+1314: }
+1315: 
+1316: .text-light {
+1317:   color: var(--color-text-light);
+1318: }
+1319: 
+1320: .text-center {
+1321:   text-align: center;
+1322: }
+1323: 
+1324: .mt-1 {
+1325:   margin-top: 4px;
+1326: }
+1327: 
+1328: .mt-2 {
+1329:   margin-top: 8px;
+1330: }
+1331: 
+1332: .mt-3 {
+1333:   margin-top: 12px;
+1334: }
+1335: 
+1336: .mt-4 {
+1337:   margin-top: 16px;
+1338: }
+1339: 
+1340: .mb-2 {
+1341:   margin-bottom: 8px;
+1342: }
+1343: 
+1344: .mb-3 {
+1345:   margin-bottom: 12px;
+1346: }
+1347: 
+1348: .hidden {
+1349:   display: none !important;
+1350: }
+1351: 
+1352: /* ---------- Highlight.js theme override (dark code blocks) ---------- */
+1353: .md-content pre code.hljs {
+1354:   background: transparent;
+1355:   color: var(--color-code-text);
+1356: }
+1357: 
+1358: .hljs-comment,
+1359: .hljs-quote {
+1360:   color: #64748b;
+1361:   font-style: italic;
+1362: }
+1363: 
+1364: .hljs-keyword,
+1365: .hljs-selector-tag,
+1366: .hljs-template-tag,
+1367: .hljs-doctag {
+1368:   color: #c084fc;
+1369: }
+1370: 
+1371: .hljs-string,
+1372: .hljs-template-variable,
+1373: .hljs-variable,
+1374: .hljs-tag .hljs-attr,
+1375: .hljs-regexp {
+1376:   color: #86efac;
+1377: }
+1378: 
+1379: .hljs-number,
+1380: .hljs-literal,
+1381: .hljs-type,
+1382: .hljs-name {
+1383:   color: #fcd34d;
+1384: }
+1385: 
+1386: .hljs-title,
+1387: .hljs-title.function_,
+1388: .hljs-title.class_ {
+1389:   color: #93c5fd;
+1390:   font-weight: 600;
+1391: }
+1392: 
+1393: .hljs-attr,
+1394: .hljs-attribute,
+1395: .hljs-property,
+1396: .hljs-selector-attr,
+1397: .hljs-selector-class {
+1398:   color: #67e8f9;
+1399: }
+1400: 
+1401: .hljs-built_in,
+1402: .hljs-symbol,
+1403: .hljs-bullet {
+1404:   color: #fca5a5;
+1405: }
+1406: 
+1407: .hljs-meta,
+1408: .hljs-meta .hljs-keyword,
+1409: .hljs-meta .hljs-string {
+1410:   color: #f0abfc;
+1411: }
+1412: 
+1413: .hljs-emphasis {
+1414:   font-style: italic;
+1415: }
+1416: 
+1417: .hljs-strong {
+1418:   font-weight: bold;
+1419: }
+1420: 
+1421: /* ---------- Responsive ---------- */
+1422: @media (max-width: 640px) {
+1423:   :root {
+1424:     --max-width: 100%;
+1425:   }
+1426: 
+1427:   .container {
+1428:     padding: 0 14px;
+1429:   }
+1430: 
+1431:   .header-inner {
+1432:     gap: 8px;
+1433:   }
+1434: 
+1435:   .logo {
+1436:     font-size: 16px;
+1437:   }
+1438: 
+1439:   .logo-mark {
+1440:     width: 28px;
+1441:     height: 28px;
+1442:     font-size: 14px;
+1443:   }
+1444: 
+1445:   .page-title {
+1446:     font-size: 18px;
+1447:   }
+1448: 
+1449:   .post-card {
+1450:     padding: 12px 14px;
+1451:     gap: 10px;
+1452:   }
+1453: 
+1454:   .post-vote {
+1455:     min-width: 30px;
+1456:   }
+1457: 
+1458:   .post-title-link {
+1459:     font-size: 15px;
+1460:   }
+1461: 
+1462:   .post-detail {
+1463:     padding: 18px 16px;
+1464:   }
+1465: 
+1466:   .post-detail-title {
+1467:     font-size: 20px;
+1468:   }
+1469: 
+1470:   .post-actions-bar {
+1471:     margin-left: 0;
+1472:     width: 100%;
+1473:   }
+1474: 
+1475:   .md-content {
+1476:     font-size: 14.5px;
+1477:   }
+1478: 
+1479:   .md-content h1 {
+1480:     font-size: 1.4em;
+1481:   }
+1482: 
+1483:   .md-content h2 {
+1484:     font-size: 1.25em;
+1485:   }
+1486: 
+1487:   .auth-card {
+1488:     padding: 24px 20px;
+1489:   }
+1490: 
+1491:   .modal-body {
+1492:     padding: 16px;
+1493:   }
+1494: 
+1495:   .modal-header,
+1496:   .modal-footer {
+1497:     padding-left: 16px;
+1498:     padding-right: 16px;
+1499:   }
+1500: 
+1501:   .toast-container {
+1502:     top: auto;
+1503:     bottom: 16px;
+1504:     right: 12px;
+1505:     left: 12px;
+1506:   }
+1507: 
+1508:   .toast {
+1509:     max-width: none;
+1510:   }
+1511: }
+1512: 
+1513: @media (max-width: 420px) {
+1514:   .nav-actions .btn-text {
+1515:     display: none;
+1516:   }
+1517: 
+1518:   .post-meta {
+1519:     gap: 8px;
+1520:     font-size: 12px;
+1521:   }
+1522: }
+1523: 
+1524: /* ---------- Print ---------- */
+1525: @media print {
+1526:   .header,
+1527:   .footer,
+1528:   .post-actions-bar,
+1529:   .reply-form,
+1530:   .pagination {
+1531:     display: none;
+1532:   }
+1533: }
+1534: 
+1535: /* ==========================================================================
+1536:    V2 用户中心样式
+1537:    ========================================================================== */
+1538: 
+1539: /* ---------- 头像通用样式 ---------- */
+1540: .avatar-img-wrap {
+1541:   display: inline-flex;
+1542:   align-items: center;
+1543:   justify-content: center;
+1544:   overflow: hidden;
+1545:   border-radius: 50%;
+1546:   background: var(--color-primary-soft);
+1547:   flex-shrink: 0;
+1548: }
+1549: 
+1550: .avatar-img-wrap.avatar {
+1551:   width: 28px;
+1552:   height: 28px;
+1553: }
+1554: 
+1555: .avatar-img-wrap.avatar-lg {
+1556:   width: 48px;
+1557:   height: 48px;
+1558: }
+1559: 
+1560: .avatar-img-wrap.avatar-lg-img {
+1561:   width: 48px;
+1562:   height: 48px;
+1563: }
+1564: 
+1565: .avatar-img {
+1566:   width: 100%;
+1567:   height: 100%;
+1568:   object-fit: cover;
+1569:   border-radius: 50%;
+1570:   display: block;
+1571: }
+1572: 
+1573: /* 帖子列表头像 */
+1574: .post-avatar {
+1575:   width: 40px;
+1576:   height: 40px;
+1577:   border-radius: 50%;
+1578:   background: var(--color-primary-soft);
+1579:   display: flex;
+1580:   align-items: center;
+1581:   justify-content: center;
+1582:   font-weight: 600;
+1583:   color: var(--color-primary);
+1584:   font-size: 16px;
+1585:   flex-shrink: 0;
+1586:   overflow: hidden;
+1587: }
+1588: 
+1589: .post-avatar-img-wrap {
+1590:   background: transparent;
+1591: }
+1592: 
+1593: /* 回复头像 */
+1594: .reply-avatar {
+1595:   width: 40px;
+1596:   height: 40px;
+1597:   border-radius: 50%;
+1598:   background: var(--color-primary-soft);
+1599:   display: flex;
+1600:   align-items: center;
+1601:   justify-content: center;
+1602:   font-weight: 600;
+1603:   color: var(--color-primary);
+1604:   font-size: 16px;
+1605:   flex-shrink: 0;
+1606:   overflow: hidden;
+1607: }
+1608: 
+1609: .reply-avatar-img-wrap {
+1610:   background: transparent;
+1611: }
+1612: 
+1613: /* ---------- 用户中心页面 ---------- */
+1614: .profile-header {
+1615:   display: flex;
+1616:   gap: 32px;
+1617:   align-items: center;
+1618:   padding: 32px;
+1619:   margin-bottom: 24px;
+1620: }
+1621: 
+1622: .profile-avatar-section {
+1623:   display: flex;
+1624:   flex-direction: column;
+1625:   align-items: center;
+1626:   gap: 8px;
+1627: }
+1628: 
+1629: .profile-avatar-wrap {
+1630:   position: relative;
+1631:   width: 120px;
+1632:   height: 120px;
+1633: }
+1634: 
+1635: .profile-avatar {
+1636:   width: 120px;
+1637:   height: 120px;
+1638:   border-radius: 50%;
+1639:   background: var(--color-primary-soft);
+1640:   display: flex;
+1641:   align-items: center;
+1642:   justify-content: center;
+1643:   font-size: 48px;
+1644:   font-weight: 700;
+1645:   color: var(--color-primary);
+1646:   overflow: hidden;
+1647:   border: 3px solid var(--color-surface);
+1648:   box-shadow: var(--shadow-md);
+1649: }
+1650: 
+1651: .profile-avatar.avatar-img-wrap {
+1652:   background: var(--color-bg);
+1653: }
+1654: 
+1655: .profile-avatar.avatar-letter {
+1656:   display: flex;
+1657:   align-items: center;
+1658:   justify-content: center;
+1659: }
+1660: 
+1661: .avatar-lg-img {
+1662:   width: 120px;
+1663:   height: 120px;
+1664: }
+1665: 
+1666: .profile-avatar-upload-btn {
+1667:   position: absolute;
+1668:   bottom: 0;
+1669:   right: 0;
+1670:   width: 36px;
+1671:   height: 36px;
+1672:   border-radius: 50%;
+1673:   background: var(--color-primary);
+1674:   color: white;
+1675:   display: flex;
+1676:   align-items: center;
+1677:   justify-content: center;
+1678:   cursor: pointer;
+1679:   box-shadow: var(--shadow);
+1680:   transition: var(--transition);
+1681:   font-size: 16px;
+1682:   border: 2px solid var(--color-surface);
+1683: }
+1684: 
+1685: .profile-avatar-upload-btn:hover {
+1686:   background: var(--color-primary-dark);
+1687:   transform: scale(1.1);
+1688: }
+1689: 
+1690: .profile-avatar-upload-btn .upload-icon {
+1691:   line-height: 1;
+1692: }
+1693: 
+1694: .profile-avatar-upload-btn .upload-text {
+1695:   display: none;
+1696: }
+1697: 
+1698: .profile-avatar-info {
+1699:   text-align: center;
+1700: }
+1701: 
+1702: .avatar-url-info {
+1703:   font-size: 12px;
+1704:   color: var(--color-text-light);
+1705:   word-break: break-all;
+1706:   max-width: 140px;
+1707:   margin-top: 4px;
+1708: }
+1709: 
+1710: .avatar-hint {
+1711:   font-size: 12px;
+1712:   color: var(--color-text-light);
+1713: }
+1714: 
+1715: .profile-info-section {
+1716:   flex: 1;
+1717: }
+1718: 
+1719: .profile-name {
+1720:   font-size: 28px;
+1721:   font-weight: 700;
+1722:   color: var(--color-text);
+1723:   margin-bottom: 16px;
+1724: }
+1725: 
+1726: .profile-meta {
+1727:   display: flex;
+1728:   flex-direction: column;
+1729:   gap: 8px;
+1730: }
+1731: 
+1732: .profile-meta-row {
+1733:   display: flex;
+1734:   align-items: center;
+1735:   gap: 12px;
+1736:   font-size: 14px;
+1737: }
+1738: 
+1739: .profile-meta-label {
+1740:   color: var(--color-text-muted);
+1741:   min-width: 80px;
+1742: }
+1743: 
+1744: .profile-meta-value {
+1745:   color: var(--color-text);
+1746:   font-weight: 500;
+1747: }
+1748: 
+1749: /* ---------- 资料编辑卡片 ---------- */
+1750: .profile-edit-section {
+1751:   display: flex;
+1752:   flex-direction: column;
+1753:   gap: 24px;
+1754:   margin-bottom: 32px;
+1755: }
+1756: 
+1757: .profile-edit-card {
+1758:   padding: 24px;
+1759: }
+1760: 
+1761: .edit-section-title {
+1762:   font-size: 18px;
+1763:   font-weight: 600;
+1764:   color: var(--color-text);
+1765:   margin-bottom: 20px;
+1766:   padding-bottom: 12px;
+1767:   border-bottom: 1px solid var(--color-border);
+1768: }
+1769: 
+1770: .edit-actions {
+1771:   margin-top: 20px;
+1772:   display: flex;
+1773:   justify-content: flex-end;
+1774: }
+1775: 
+1776: /* ---------- 密码输入框 ---------- */
+1777: .password-input-wrap {
+1778:   position: relative;
+1779:   display: flex;
+1780:   align-items: center;
+1781: }
+1782: 
+1783: .password-input-wrap .form-control {
+1784:   padding-right: 48px;
+1785:   flex: 1;
+1786: }
+1787: 
+1788: .password-toggle {
+1789:   position: absolute;
+1790:   right: 8px;
+1791:   background: none;
+1792:   border: none;
+1793:   cursor: pointer;
+1794:   font-size: 18px;
+1795:   color: var(--color-text-light);
+1796:   padding: 4px 8px;
+1797:   transition: var(--transition);
+1798:   display: flex;
+1799:   align-items: center;
+1800: }
+1801: 
+1802: .password-toggle:[REDACTED:credential] {
+1803:   color: var(--color-text-muted);
+1804: }
+1805: 
+1806: /* ---------- 密码强度条 ---------- */
+1807: .password-strength {
+1808:   display: flex;
+1809:   align-items: center;
+1810:   gap: 10px;
+1811:   margin-top: 8px;
+1812: }
+1813: 
+1814: .strength-bar {
+1815:   height: 4px;
+1816:   width: 0;
+1817:   border-radius: 2px;
+1818:   background: var(--color-border);
+1819:   transition: width 0.3s ease, background 0.3s ease;
+1820:   flex: 1;
+1821: }
+1822: 
+1823: .strength-text {
+1824:   font-size: 12px;
+1825:   color: var(--color-text-muted);
+1826:   min-width: 40px;
+1827:   text-align: right;
+1828: }
+1829: 
+1830: /* ---------- 响应式 ---------- */
+1831: @media (max-width: 768px) {
+1832:   .profile-header {
+1833:     flex-direction: column;
+1834:     text-align: center;
+1835:     padding: 24px;
+1836:     gap: 20px;
+1837:   }
+1838: 
+1839:   .profile-info-section {
+1840:     text-align: center;
+1841:   }
+1842: 
+1843:   .profile-meta {
+1844:     align-items: center;
+1845:   }
+1846: 
+1847:   .profile-meta-row {
+1848:     justify-content: center;
+1849:   }
+1850: 
+1851:   .profile-avatar {
+1852:     width: 100px;
+1853:     height: 100px;
+1854:     font-size: 40px;
+1855:   }
+1856: 
+1857:   .profile-avatar-wrap {
+1858:     width: 100px;
+1859:     height: 100px;
+1860:   }
+1861: 
+1862:   .avatar-lg-img {
+1863:     width: 100px;
+1864:     height: 100px;
+1865:   }
+1866: }
+1867: 
+1868: /* ==========================================================================
+1869:    V3 回复层级（楼中楼）样式
+1870:    ========================================================================== */
+1871: 
+1872: /* ---------- 角色徽标 ---------- */
+1873: .tag-op {
+1874:   display: inline-block;
+1875:   padding: 1px 7px;
+1876:   font-size: 11px;
+1877:   font-weight: 700;
+1878:   background: var(--color-success-soft);
+1879:   color: #047857;
+1880:   border-radius: 4px;
+1881:   line-height: 1.5;
+1882:   vertical-align: middle;
+1883:   white-space: nowrap;
+1884: }
+1885: 
+1886: /* ---------- 头像配色：楼主 = 绿，管理员 = 琥珀 ---------- */
+1887: .avatar.avatar-op {
+1888:   background: linear-gradient(135deg, #34d399, #059669);
+1889: }
+1890: 
+1891: .avatar.avatar-admin {
+1892:   background: linear-gradient(135deg, #fbbf24, #d97706);
+1893: }
+1894: 
+1895: .avatar-lg.avatar-op {
+1896:   background: linear-gradient(135deg, #34d399, #059669);
+1897: }
+1898: 
+1899: .avatar-lg.avatar-admin {
+1900:   background: linear-gradient(135deg, #fbbf24, #d97706);
+1901: }
+1902: 
+1903: .reply-avatar.avatar-op {
+1904:   background: linear-gradient(135deg, #34d399, #059669);
+1905: }
+1906: 
+1907: .reply-avatar.avatar-admin {
+1908:   background: linear-gradient(135deg, #fbbf24, #d97706);
+1909: }
+1910: 
+1911: /* 头像图片时，导航栏徽标保持 22px（避免被 .avatar-img-wrap.avatar 放大） */
+1912: .user-badge .avatar-img-wrap.avatar {
+1913:   width: 22px;
+1914:   height: 22px;
+1915: }
+1916: 
+1917: /* ---------- 主贴卡片：楼主标识（主色左边框） ---------- */
+1918: .post-detail.post-op {
+1919:   border-left: 3px solid var(--color-primary);
+1920: }
+1921: 
+1922: /* ---------- 回复卡片：楼主 / 管理员 左边框 ---------- */
+1923: .reply-item.reply-admin {
+1924:   border-left: 3px solid var(--color-warning);
+1925: }
+1926: 
+1927: .reply-item.reply-op {
+1928:   border-left: 3px solid var(--color-primary);
+1929:   background: linear-gradient(
+1930:     90deg,
+1931:     var(--color-primary-soft) 0%,
+1932:     var(--color-surface) 34%
+1933:   );
+1934: }
+1935: 
+1936: /* ---------- 楼层号 ---------- */
+1937: .reply-floor {
+1938:   font-size: 12px;
+1939:   font-weight: 700;
+1940:   color: var(--color-text-light);
+1941:   background: var(--color-bg-soft);
+1942:   border: 1px solid var(--color-border);
+1943:   border-radius: 4px;
+1944:   padding: 0 5px;
+1945:   line-height: 1.6;
+1946: }
+1947: 
+1948: /* ---------- 被回复人引用条 ---------- */
+1949: .reply-quote {
+1950:   display: flex;
+1951:   align-items: center;
+1952:   gap: 6px;
+1953:   margin-bottom: 6px;
+1954:   padding: 5px 10px;
+1955:   font-size: 12.5px;
+1956:   background: var(--color-bg-soft);
+1957:   border: 1px solid var(--color-border);
+1958:   border-left: 2px solid var(--color-primary-light);
+1959:   border-radius: var(--radius-sm);
+1960:   color: var(--color-text-muted);
+1961: }
+1962: 
+1963: .reply-quote-label {
+1964:   color: var(--color-text-light);
+1965: }
+1966: 
+1967: .reply-quote-target {
+1968:   color: var(--color-primary);
+1969:   font-weight: 600;
+1970: }
+1971: 
+1972: /* ---------- 回复操作栏 ---------- */
+1973: .reply-actions {
+1974:   display: flex;
+1975:   align-items: center;
+1976:   gap: 6px;
+1977:   margin-top: 8px;
+1978:   flex-wrap: wrap;
+1979: }
+1980: 
+1981: .reply-action-btn {
+1982:   padding: 3px 10px;
+1983:   font-size: 12.5px;
+1984:   font-weight: 600;
+1985:   color: var(--color-text-light);
+1986:   border-radius: var(--radius-sm);
+1987:   line-height: 1.5;
+1988: }
+1989: 
+1990: .reply-action-btn:hover {
+1991:   color: var(--color-primary);
+1992:   background: var(--color-primary-soft);
+1993:   border-color: var(--color-border);
+1994: }
+1995: 
+1996: .reply-action-delete:hover {
+1997:   color: var(--color-danger);
+1998:   background: var(--color-danger-soft);
+1999:   border-color: #fecaca;
+2000: }
+
+(Showing lines 1-2000 of 2122. Use offset=2001 to continue.)
+</content>
